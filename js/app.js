@@ -16,6 +16,7 @@ const PAGE_META = {
   learn: ["Bài học", "45 bài · HSK 1 đến HSK 3"],
   lesson: ["Bài học 4 kỹ năng", "Nghe · nói · đọc · viết"],
   review: ["Ôn tập", "Nhớ lâu bằng lặp lại ngắt quãng"],
+  exams: ["Trung tâm luyện thi", "Đề mô phỏng · bấm giờ · lưu kết quả"],
   words: ["Từ vựng", "Tra cứu nhanh bộ từ đang học"],
   write: ["Luyện viết", "Viết chữ Hán trên ô mễ tự"],
   flashcards: ["Thẻ ghi nhớ", "Lật thẻ · nghe · tự đánh giá"],
@@ -44,6 +45,7 @@ let selectedLevel = 1;
 let selectedCourseLessonId = 1;
 let activeLessonSkill = "listen";
 let hanziWriter = null;
+let examTimer = null;
 
 const defaultState = () => ({
   profileName: "Chi",
@@ -57,6 +59,7 @@ const defaultState = () => ({
   studiedDates: [],
   progress: {},
   favorites: [],
+  examHistory: [],
   stats: {
     flashcards: 0,
     quizAnswers: 0,
@@ -93,6 +96,7 @@ function loadState() {
       daily: { ...defaults.daily, ...(stored.daily || {}) },
       progress: stored.progress || {},
       favorites: Array.isArray(stored.favorites) ? stored.favorites : [],
+      examHistory: Array.isArray(stored.examHistory) ? stored.examHistory : [],
       studiedDates: Array.isArray(stored.studiedDates)
         ? stored.studiedDates
         : [],
@@ -229,14 +233,18 @@ function applyTheme() {
 
 function routeFromHash() {
   const route = window.location.hash.replace("#", "");
-  return ["home", "learn", "review", "words", "write"].includes(route)
+  return ["home", "learn", "review", "exams", "words", "write"].includes(route)
     ? route
     : "home";
 }
 
 function navigate(page, { updateHash = true } = {}) {
+  if (page !== "quiz" && examTimer) {
+    clearInterval(examTimer);
+    examTimer = null;
+  }
   currentPage = PAGE_META[page] ? page : "home";
-  if (updateHash && ["home", "learn", "review", "words", "write"].includes(page)) {
+  if (updateHash && ["home", "learn", "review", "exams", "words", "write"].includes(page)) {
     history.pushState(null, "", `#${page}`);
   }
   render();
@@ -252,7 +260,7 @@ function render() {
   pageEyebrow.textContent = eyebrow;
 
   document.querySelectorAll("[data-page]").forEach((button) => {
-    const activePage = ["flashcards", "lesson"].includes(currentPage) ? "learn" : currentPage === "quiz" ? "review" : currentPage;
+    const activePage = ["flashcards", "lesson"].includes(currentPage) ? "learn" : currentPage === "quiz" ? (quizSession?.mode === "exam" ? "exams" : "review") : currentPage;
     button.classList.toggle("is-active", button.dataset.page === activePage);
     if (button.classList.contains("nav-item")) {
       button.setAttribute("aria-current", button.dataset.page === activePage ? "page" : "false");
@@ -268,6 +276,9 @@ function render() {
       break;
     case "review":
       renderReview();
+      break;
+    case "exams":
+      renderExams();
       break;
     case "words":
       renderWords();
@@ -356,6 +367,11 @@ function renderHome() {
       <article class="card stat-card"><span class="stat-icon coral" aria-hidden="true">字</span><span class="stat-copy"><strong>${learned}</strong><small>Từ đã mở khóa</small></span></article>
       <article class="card stat-card"><span class="stat-icon mint" aria-hidden="true">✓</span><span class="stat-copy"><strong>${mastered}</strong><small>Từ đang nhớ tốt</small></span></article>
       <article class="card stat-card"><span class="stat-icon gold" aria-hidden="true">◎</span><span class="stat-copy"><strong>${accuracy}%</strong><small>Độ chính xác quiz</small></span></article>
+    </section>
+
+    <section class="exam-promo card">
+      <div><span class="exam-promo-kicker">模拟考试 · Đề mô phỏng</span><h2>Sẵn sàng kiểm tra trình độ?</h2><p>Làm đề HSK theo cấp độ, có đồng hồ và bảng kết quả lưu ngay trên thiết bị.</p></div>
+      <button class="primary-button" type="button" data-page="exams">Vào trung tâm luyện thi →</button>
     </section>
 
     <div class="section-header">
@@ -696,12 +712,74 @@ function renderFlashcardComplete() {
   `;
 }
 
+function renderExams() {
+  const history = state.examHistory.slice(0, 6);
+  const best = history.length ? Math.max(...history.map((item) => item.percent)) : 0;
+  const average = history.length ? Math.round(history.reduce((sum, item) => sum + item.percent, 0) / history.length) : 0;
+  main.innerHTML = `
+    <section class="exam-hero card">
+      <div><span class="exam-promo-kicker">HanziGo Test Center</span><h2>Luyện đúng nhịp thi, biết rõ điểm yếu</h2><p>Mỗi đề gồm 20 câu nghe và đọc, thời gian 15 phút. Kết quả được lưu để bạn theo dõi sự tiến bộ.</p></div>
+      <div class="exam-hero-score"><strong>${best}%</strong><small>Điểm cao nhất</small></div>
+    </section>
+    <section class="exam-summary" aria-label="Tổng quan luyện thi">
+      <article class="card"><span>📝</span><strong>${state.examHistory.length}</strong><small>Đề đã làm</small></article>
+      <article class="card"><span>◎</span><strong>${average}%</strong><small>Điểm trung bình</small></article>
+      <article class="card"><span>🏆</span><strong>${best}%</strong><small>Kỷ lục cá nhân</small></article>
+    </section>
+    <div class="section-header"><div><h2>Kho đề HSK</h2><p>Chọn cấp độ phù hợp với lộ trình hiện tại.</p></div></div>
+    <section class="exam-grid">
+      ${[1, 2, 3].map((level) => {
+        const attempts = state.examHistory.filter((item) => item.level === level);
+        const levelBest = attempts.length ? Math.max(...attempts.map((item) => item.percent)) : null;
+        return `<article class="card exam-card level-${level}"><div class="exam-card-top"><span class="exam-level">HSK <b>${level}</b></span><span class="exam-status">${levelBest === null ? "Chưa làm" : `Cao nhất ${levelBest}%`}</span></div><h3>Đề mô phỏng HSK ${level}</h3><p>20 câu · Nghe và đọc · 15 phút</p><div class="exam-tags"><span>🎧 Nghe hiểu</span><span>阅 Đọc hiểu</span></div><button class="primary-button" type="button" data-action="start-mock-exam" data-level="${level}">Bắt đầu làm đề</button></article>`;
+      }).join("")}
+    </section>
+    <div class="section-header"><div><h2>Lịch sử gần đây</h2><p>Kết quả được lưu riêng trên thiết bị này.</p></div></div>
+    <section class="card exam-history">${history.length ? history.map((item) => `<div class="exam-history-row"><span class="history-level">HSK ${item.level}</span><span><strong>${item.score}/${item.total}</strong><small>${new Date(item.date).toLocaleDateString("vi-VN")}</small></span><b class="history-score ${item.percent >= 70 ? "is-pass" : ""}">${item.percent}%</b></div>`).join("") : `<div class="empty-history"><span>📊</span><p>Chưa có kết quả. Làm đề đầu tiên để mở biểu đồ tiến bộ nhé.</p></div>`}</section>
+  `;
+}
+
+function startMockExam(level) {
+  const pool = VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === level);
+  const targets = shuffle(pool).slice(0, Math.min(20, pool.length));
+  const types = ["listening", "hanzi", "meaning"];
+  quizSession = {
+    mode: "exam", level, startedAt: Date.now(), duration: 15 * 60 * 1000,
+    questions: targets.map((word, index) => buildQuestion(word, types[index % types.length], pool)),
+    index: 0, score: 0, xp: 0, answered: null, celebrated: false, saved: false,
+  };
+  navigate("quiz", { updateHash: false });
+  startExamClock();
+}
+
+function startExamClock() {
+  if (examTimer) clearInterval(examTimer);
+  examTimer = setInterval(() => {
+    if (!quizSession || quizSession.mode !== "exam") return clearInterval(examTimer);
+    const remaining = Math.max(0, quizSession.duration - (Date.now() - quizSession.startedAt));
+    const clock = document.querySelector("#exam-clock");
+    if (clock) clock.textContent = formatExamTime(remaining);
+    if (!remaining) {
+      quizSession.index = quizSession.questions.length;
+      clearInterval(examTimer);
+      examTimer = null;
+      renderQuiz();
+    }
+  }, 1000);
+}
+
+function formatExamTime(ms) {
+  const seconds = Math.ceil(ms / 1000);
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 function startQuiz(poolOverride = null) {
   const seen = getSeenWords();
   const pool = poolOverride?.length ? poolOverride : seen.length >= 8 ? seen : getLessonWords(1);
   const targets = shuffle(pool).slice(0, Math.min(10, pool.length));
   const types = ["meaning", "hanzi", "listening"];
   quizSession = {
+    mode: "practice",
     questions: targets.map((word, index) => buildQuestion(word, types[index % types.length], pool)),
     index: 0,
     score: 0,
@@ -758,13 +836,15 @@ function renderQuiz() {
   const prompt = quizPrompt(question);
   const typeLabel = question.type === "meaning" ? "Chọn nghĩa" : question.type === "hanzi" ? "Nhận mặt chữ" : "Luyện nghe";
   const typeIcon = question.type === "listening" ? "🎧" : question.type === "hanzi" ? "字" : "译";
+  const isExam = quizSession.mode === "exam";
+  const remaining = isExam ? Math.max(0, quizSession.duration - (Date.now() - quizSession.startedAt)) : 0;
 
   main.innerHTML = `
     <section class="quiz-shell">
       <div class="study-topline">
-        <button class="icon-button" type="button" data-page="review" aria-label="Thoát quiz">${icon("close")}</button>
+        <button class="icon-button" type="button" data-page="${isExam ? "exams" : "review"}" aria-label="Thoát quiz">${icon("close")}</button>
         <div class="mini-progress" aria-label="Tiến độ ${progress}%"><span style="--progress: ${progress}%"></span></div>
-        <span class="study-count">${quizSession.index + 1}/${quizSession.questions.length}</span>
+        ${isExam ? `<span class="exam-clock" id="exam-clock">⏱ ${formatExamTime(remaining)}</span>` : `<span class="study-count">${quizSession.index + 1}/${quizSession.questions.length}</span>`}
       </div>
       <article class="card quiz-card">
         <span class="quiz-type"><span aria-hidden="true">${typeIcon}</span> ${typeLabel}</span>
@@ -847,11 +927,18 @@ function renderQuizComplete() {
   const total = quizSession.questions.length;
   const percent = Math.round((quizSession.score / total) * 100);
   const message = percent >= 90 ? "Xuất sắc, phản xạ rất tốt!" : percent >= 70 ? "Ổn lắm, bạn đang nhớ khá chắc." : "Không sao, ôn lại thẻ rồi thử tiếp nhé.";
+  const isExam = quizSession.mode === "exam";
+  if (isExam && !quizSession.saved) {
+    quizSession.saved = true;
+    state.examHistory.unshift({ level: quizSession.level, score: quizSession.score, total, percent, date: new Date().toISOString() });
+    state.examHistory = state.examHistory.slice(0, 30);
+    saveState();
+  }
 
   main.innerHTML = `
     <section class="card session-complete">
       <div class="complete-icon" aria-hidden="true">${percent >= 70 ? "🏆" : "🌱"}</div>
-      <p class="eyebrow">Kết quả quiz</p>
+      <p class="eyebrow">${isExam ? `Kết quả đề HSK ${quizSession.level}` : "Kết quả quiz"}</p>
       <h2>${quizSession.score}/${total} câu đúng</h2>
       <p>${message}</p>
       <div class="complete-stats">
@@ -860,8 +947,8 @@ function renderQuizComplete() {
         <div class="complete-stat"><strong>+${quizSession.xp}</strong><small>XP nhận được</small></div>
       </div>
       <div class="complete-actions">
-        <button class="secondary-button" type="button" data-page="review">Về ôn tập</button>
-        <button class="primary-button" type="button" data-action="start-quiz">${icon("refresh")} Thử lại</button>
+        <button class="secondary-button" type="button" data-page="${isExam ? "exams" : "review"}">${isExam ? "Xem lịch sử" : "Về ôn tập"}</button>
+        <button class="primary-button" type="button" data-action="${isExam ? "start-mock-exam" : "start-quiz"}" ${isExam ? `data-level="${quizSession.level}"` : ""}>${icon("refresh")} Thử lại</button>
       </div>
     </section>
   `;
@@ -1235,6 +1322,7 @@ function bindGlobalEvents() {
     if (action === "practice-speaking") practiceSpeaking();
     if (action === "start-course-flashcards") startFlashcards("lesson", selectedCourseLessonId);
     if (action === "start-course-quiz") startQuiz(getLessonWords(selectedCourseLessonId));
+    if (action === "start-mock-exam") startMockExam(Number(actionElement.dataset.level) || 1);
     if (action === "lesson-write") {
       const writingWord = getLessonWords(selectedCourseLessonId).find((word) => Array.from(word.hanzi).length === 1);
       if (writingWord) selectedWritingId = writingWord.id;
