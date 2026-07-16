@@ -1,4 +1,6 @@
-export const LESSONS = [
+import { COURSE_LESSONS, EXTRA_VOCABULARY } from "./curriculum.js";
+
+const STARTER_LESSONS = [
   {
     id: 1,
     title: "Chào hỏi đầu tiên",
@@ -45,7 +47,7 @@ export const LESSONS = [
 
 // Bộ khởi động HSK 1 gồm 72 từ/cụm từ nền tảng. Đây không phải danh mục
 // từ vựng chính thức đầy đủ của một phiên bản kỳ thi HSK cụ thể.
-export const VOCABULARY = [
+const STARTER_VOCABULARY = [
   {
     id: "l1-nihao",
     lesson: 1,
@@ -773,6 +775,9 @@ export const VOCABULARY = [
   },
 ];
 
+export const LESSONS = COURSE_LESSONS;
+export const VOCABULARY = [...STARTER_VOCABULARY, ...EXTRA_VOCABULARY];
+
 export const WRITING_WORDS = VOCABULARY.filter(
   (word) => Array.from(word.hanzi).length === 1,
 );
@@ -784,3 +789,5 @@ export function getLessonWords(lessonId) {
 export function getWord(wordId) {
   return VOCABULARY.find((word) => word.id === wordId);
 }
+
+export { getCourseLesson } from "./curriculum.js";

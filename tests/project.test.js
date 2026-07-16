@@ -11,6 +11,7 @@ test("các tệp quan trọng để chạy và cài PWA đều tồn tại", () 
     "styles.css",
     "js/app.js",
     "js/data.js",
+    "js/curriculum.js",
     "manifest.webmanifest",
     "sw.js",
     "assets/mascot.svg",
@@ -31,7 +32,7 @@ test("manifest có icon 192 và 512, start URL nằm trong scope", () => {
 
 test("service worker cache đầy đủ các tài nguyên cốt lõi", () => {
   const worker = readFileSync(resolve(root, "sw.js"), "utf8");
-  for (const asset of ["index.html", "styles.css", "js/app.js", "js/data.js", "manifest.webmanifest"]) {
+  for (const asset of ["index.html", "styles.css", "js/app.js", "js/data.js", "js/curriculum.js", "manifest.webmanifest"]) {
     assert.ok(worker.includes(asset), `Cache chưa có ${asset}`);
   }
 });

@@ -8,11 +8,16 @@ import {
   getWord,
 } from "../js/data.js";
 
-test("bộ khởi động có đúng 6 bài và 72 mục từ", () => {
-  assert.equal(LESSONS.length, 6);
-  assert.equal(VOCABULARY.length, 72);
+test("lộ trình có đủ HSK 1–3, mỗi cấp 15 bài", () => {
+  assert.equal(LESSONS.length, 45);
+  assert.ok(VOCABULARY.length >= 220);
+  for (const level of [1, 2, 3]) {
+    assert.equal(LESSONS.filter((lesson) => lesson.level === level).length, 15);
+  }
   for (const lesson of LESSONS) {
-    assert.equal(getLessonWords(lesson.id).length, 12, `Bài ${lesson.id} phải có 12 từ`);
+    assert.ok(getLessonWords(lesson.id).length >= 4, `Bài ${lesson.id} phải có từ mới`);
+    assert.equal(lesson.dialogue.length, 2, `Bài ${lesson.id} phải có hội thoại`);
+    assert.ok(lesson.grammar, `Bài ${lesson.id} phải có trọng tâm ngữ pháp`);
   }
 });
 

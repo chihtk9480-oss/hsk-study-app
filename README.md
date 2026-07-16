@@ -1,10 +1,13 @@
 # HanziGo — học HSK mỗi ngày
 
-HanziGo là ứng dụng web HSK 1 bằng tiếng Việt, thiết kế ưu tiên điện thoại và có thể cài như một ứng dụng PWA. Bản đầu dùng bộ khởi động 72 từ/cụm từ nền tảng, không tự nhận là toàn bộ danh mục chính thức của một phiên bản kỳ thi HSK cụ thể.
+HanziGo là ứng dụng web học HSK 1–3 bằng tiếng Việt, thiết kế ưu tiên điện thoại và có thể cài như một ứng dụng PWA. Lộ trình gồm 45 bài và 228 từ/cụm từ, được biên soạn mới theo độ khó tăng dần.
 
 ## Có gì trong app?
 
-- 6 bài học theo chủ đề, mỗi bài 12 thẻ.
+- 45 bài học: 15 bài cho mỗi cấp HSK 1, HSK 2 và HSK 3.
+- Mỗi bài có khu luyện nghe, nói, đọc và viết; hội thoại, điểm ngữ pháp và từ vựng theo chủ đề.
+- Phát âm tiếng Trung, luyện nói bằng nhận dạng giọng nói trên trình duyệt hỗ trợ.
+- Minh họa thứ tự nét chữ Hán, điều chỉnh tốc độ và chế độ tự luyện theo từng nét.
 - Flashcard lật thẻ, phát âm tiếng Hoa bằng giọng có sẵn trên thiết bị.
 - Ôn cách quãng theo mức “Quên rồi / Hơi khó / Nhớ rồi”.
 - Quiz 10 câu đan xen chọn nghĩa, nhận mặt chữ và luyện nghe.
@@ -12,7 +15,12 @@ HanziGo là ứng dụng web HSK 1 bằng tiếng Việt, thiết kế ưu tiên
 - Bảng luyện viết hỗ trợ chuột và cảm ứng.
 - Mục tiêu hằng ngày, streak, XP, thống kê và chế độ tối.
 - Lưu tiến độ bằng `localStorage`; học offline bằng service worker.
-- Không cần đăng nhập, không thu thập dữ liệu và không gọi API bên ngoài.
+- Không cần đăng nhập và không thu thập dữ liệu học tập; tiến độ được lưu ngay trên thiết bị.
+- Âm thanh sử dụng giọng đọc có sẵn trên thiết bị. Dữ liệu nét chữ được tải khi dùng lần đầu.
+
+## Nội dung
+
+Nội dung hội thoại, ví dụ và bài tập trong ứng dụng được biên soạn riêng, không sao chép nguyên văn hay sử dụng audio của một giáo trình thương mại. Cấu trúc bám sát bốn kỹ năng và mức độ HSK để người học có trải nghiệm quen thuộc như một giáo trình số.
 
 ## Chạy trên máy
 

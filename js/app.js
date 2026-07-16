@@ -4,6 +4,7 @@ import {
   WRITING_WORDS,
   getLessonWords,
   getWord,
+  getCourseLesson,
 } from "./data.js";
 
 const STORAGE_KEY = "hanzigo-state-v1";
@@ -12,7 +13,8 @@ const REVIEW_INTERVALS = [0, 1, 3, 7, 14, 30];
 
 const PAGE_META = {
   home: ["Trang chủ", "HSK 1 · Bộ khởi động"],
-  learn: ["Bài học", "6 chủ đề · 72 từ nền tảng"],
+  learn: ["Bài học", "45 bài · HSK 1 đến HSK 3"],
+  lesson: ["Bài học 4 kỹ năng", "Nghe · nói · đọc · viết"],
   review: ["Ôn tập", "Nhớ lâu bằng lặp lại ngắt quãng"],
   words: ["Từ vựng", "Tra cứu nhanh bộ từ đang học"],
   write: ["Luyện viết", "Viết chữ Hán trên ô mễ tự"],
@@ -38,6 +40,10 @@ let favoritesOnly = false;
 let selectedWritingId = WRITING_WORDS[0]?.id;
 let writingStrokes = [];
 let installPrompt = null;
+let selectedLevel = 1;
+let selectedCourseLessonId = 1;
+let activeLessonSkill = "listen";
+let hanziWriter = null;
 
 const defaultState = () => ({
   profileName: "Chi",
@@ -190,7 +196,10 @@ function getSeenWords() {
 }
 
 function getNextLesson() {
-  return LESSONS.find((lesson) => lessonStats(lesson.id).seen < 12) || LESSONS[0];
+  return LESSONS.find((lesson) => {
+    const stats = lessonStats(lesson.id);
+    return stats.seen < stats.total;
+  }) || LESSONS[0];
 }
 
 function updateShell() {
@@ -243,7 +252,7 @@ function render() {
   pageEyebrow.textContent = eyebrow;
 
   document.querySelectorAll("[data-page]").forEach((button) => {
-    const activePage = currentPage === "flashcards" ? "learn" : currentPage === "quiz" ? "review" : currentPage;
+    const activePage = ["flashcards", "lesson"].includes(currentPage) ? "learn" : currentPage === "quiz" ? "review" : currentPage;
     button.classList.toggle("is-active", button.dataset.page === activePage);
     if (button.classList.contains("nav-item")) {
       button.setAttribute("aria-current", button.dataset.page === activePage ? "page" : "false");
@@ -253,6 +262,9 @@ function render() {
   switch (currentPage) {
     case "learn":
       renderLearn();
+      break;
+    case "lesson":
+      renderCourseLesson();
       break;
     case "review":
       renderReview();
@@ -348,8 +360,8 @@ function renderHome() {
 
     <div class="section-header">
       <div>
-        <h2>Lộ trình HSK 1 khởi động</h2>
-        <p>72 từ nền tảng được chia thành 6 chủ đề dễ học.</p>
+        <h2>Lộ trình HSK 1–3</h2>
+        <p>45 bài theo trình tự, mỗi cấp độ gồm 15 bài nghe–nói–đọc–viết.</p>
       </div>
       <button class="inline-link" type="button" data-page="learn">Xem tất cả →</button>
     </div>
@@ -385,55 +397,108 @@ function streakMessage(streak) {
 }
 
 function renderLearn() {
-  const learned = getSeenWords().length;
-  const percent = Math.round((learned / VOCABULARY.length) * 100);
+  const levelLessons = LESSONS.filter((lesson) => lesson.level === selectedLevel);
+  const levelWords = VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === selectedLevel);
+  const learned = levelWords.filter((word) => getProgress(word.id).seen).length;
+  const percent = Math.round((learned / Math.max(1, levelWords.length)) * 100);
 
   main.innerHTML = `
-    <section class="card level-overview">
-      <div class="level-number" aria-hidden="true">一</div>
+    <section class="course-level-tabs" aria-label="Chọn cấp độ HSK">
+      ${[1, 2, 3].map((level) => `<button class="course-level-tab ${selectedLevel === level ? "is-active" : ""}" type="button" data-action="select-level" data-level="${level}"><span>HSK</span><strong>${level}</strong><small>15 bài</small></button>`).join("")}
+    </section>
+    <section class="card level-overview course-level-overview">
+      <div class="level-number" aria-hidden="true">${["一", "二", "三"][selectedLevel - 1]}</div>
       <div class="level-copy">
         <p class="eyebrow">Đang học</p>
-        <h2>HSK 1 · Bộ khởi động</h2>
-        <p>6 bài · 72 từ/cụm từ giao tiếp nền tảng · Có phát âm và ví dụ.</p>
+        <h2>HSK ${selectedLevel} · 15 bài theo trình tự</h2>
+        <p>Hội thoại nguyên bản · ngữ pháp · audio TTS · luyện nói · đọc hiểu · thứ tự nét.</p>
       </div>
       <div class="level-progress">
-        <div><span>Tiến độ cấp độ</span><strong>${learned}/72 từ</strong></div>
+        <div><span>Tiến độ cấp độ</span><strong>${learned}/${levelWords.length} từ</strong></div>
         <div class="mini-progress"><span style="--progress: ${percent}%"></span></div>
       </div>
     </section>
 
     <div class="section-header">
-      <div><h2>Chọn bài để học</h2><p>Mỗi bài có 12 thẻ, mất khoảng 5–8 phút.</p></div>
+      <div><h2>Giáo trình HSK ${selectedLevel}</h2><p>Học lần lượt 15 bài; mỗi bài khoảng 15–20 phút.</p></div>
     </div>
     <section class="lesson-grid" aria-label="Danh sách bài học">
-      ${LESSONS.map(renderLessonCard).join("")}
-    </section>
-
-    <div class="section-header">
-      <div><h2>Cấp độ tiếp theo</h2><p>Mở rộng sau khi bản HSK 1 đã thật chắc.</p></div>
-    </div>
-    <section class="stats-row" aria-label="Các cấp độ sắp ra mắt">
-      ${[2, 3, 4].map((level) => `<article class="card stat-card" aria-disabled="true"><span class="stat-icon ${level === 2 ? "mint" : level === 3 ? "gold" : "coral"}" aria-hidden="true">${level}</span><span class="stat-copy"><strong>HSK ${level}</strong><small>Sắp mở khóa</small></span></article>`).join("")}
+      ${levelLessons.map(renderLessonCard).join("")}
     </section>
   `;
 }
 
 function renderLessonCard(lesson) {
   const stats = lessonStats(lesson.id);
-  const buttonLabel = stats.seen === 0 ? "Bắt đầu" : stats.seen === stats.total ? "Ôn lại" : "Học tiếp";
+  const buttonLabel = stats.seen === 0 ? "Mở bài" : stats.seen === stats.total ? "Ôn lại" : "Học tiếp";
   return `
     <button class="lesson-card" type="button" data-action="start-lesson" data-lesson="${lesson.id}" data-color="${lesson.color}" aria-label="${buttonLabel} bài ${lesson.id}: ${escapeHtml(lesson.title)}">
       <span class="lesson-icon" aria-hidden="true">${lesson.emoji}</span>
       <span class="lesson-content">
-        <span class="lesson-number">Bài ${lesson.id} · 12 từ</span>
+        <span class="lesson-number">HSK ${lesson.level} · Bài ${lesson.unit} · ${stats.total} từ</span>
         <h3>${escapeHtml(lesson.title)}</h3>
         <p>${escapeHtml(lesson.subtitle)}</p>
+        <span class="lesson-skill-pills"><i>听</i><i>说</i><i>读</i><i>写</i></span>
       </span>
       <span class="lesson-card-footer">
         <span class="mini-progress"><span style="--progress: ${stats.percent}%"></span></span>
         <span class="lesson-progress-label">${stats.seen}/${stats.total} · ${buttonLabel}</span>
       </span>
     </button>
+  `;
+}
+
+function openCourseLesson(lessonId) {
+  const lesson = getCourseLesson(lessonId) || LESSONS[0];
+  selectedCourseLessonId = lesson.id;
+  selectedLevel = lesson.level;
+  activeLessonSkill = "listen";
+  navigate("lesson", { updateHash: false });
+}
+
+function renderCourseLesson() {
+  const lesson = getCourseLesson(selectedCourseLessonId) || LESSONS[0];
+  const words = getLessonWords(lesson.id);
+  const stats = lessonStats(lesson.id);
+  const skillContent = {
+    listen: `
+      <div class="skill-panel-grid">
+        <article class="dialogue-card">
+          <div class="dialogue-heading"><div><span class="skill-kicker">🎧 Luyện nghe</span><h3>Hội thoại tình huống</h3></div><button class="audio-button is-large" type="button" data-action="play-dialogue">${icon("volume")}<span>Nghe cả bài</span></button></div>
+          <p class="audio-note">Giọng Trung phổ thông từ thiết bị · có thể nghe từng câu.</p>
+          ${lesson.dialogue.map((line, index) => `<button class="dialogue-line" type="button" data-action="play-line" data-line="${index}"><span class="speaker">${line.speaker}</span><span><strong>${line.hanzi}</strong>${state.showPinyin ? `<em>${escapeHtml(line.pinyin)}</em>` : ""}<small>${escapeHtml(line.meaning)}</small></span><i>${icon("volume")}</i></button>`).join("")}
+        </article>
+        <article class="listening-mission"><span class="mission-icon">🎯</span><h3>Nhiệm vụ nghe</h3><p>Nghe 2 lần không nhìn pinyin. Lần ba, chạm từng câu và nhại lại đúng nhịp.</p><div class="wave-bars" aria-hidden="true">${Array.from({ length: 18 }, (_, i) => `<i style="--h:${22 + ((i * 17) % 64)}%"></i>`).join("")}</div></article>
+      </div>`,
+    speak: `
+      <div class="speaking-lab">
+        <div class="speaking-orb"><span>说</span><i></i><i></i><i></i></div>
+        <div><span class="skill-kicker">🗣️ Shadowing</span><h3>Nói theo từng câu</h3><p>Nghe mẫu, giữ nhịp và nói lại. App sẽ dùng nhận dạng giọng nói nếu trình duyệt hỗ trợ.</p><blockquote>${lesson.dialogue[0].hanzi}<small>${state.showPinyin ? escapeHtml(lesson.dialogue[0].pinyin) : ""}</small></blockquote><div class="speaking-actions"><button class="secondary-button" type="button" data-action="play-line" data-line="0">${icon("volume")} Nghe mẫu</button><button class="primary-button pulse-button" type="button" data-action="practice-speaking">🎙 Bắt đầu nói</button></div><p class="speech-result" id="speech-result" aria-live="polite">Sẵn sàng khi bạn sẵn sàng.</p></div>
+      </div>`,
+    read: `
+      <div class="reading-lab">
+        <span class="skill-kicker">📖 Đọc hiểu</span><h3>Đọc theo vai A–B</h3>
+        <div class="reading-paper">${lesson.dialogue.map((line) => `<p><b>${line.speaker}</b><span><strong>${line.hanzi}</strong>${state.showPinyin ? `<em>${escapeHtml(line.pinyin)}</em>` : ""}<small>${escapeHtml(line.meaning)}</small></span></p>`).join("")}</div>
+        <div class="grammar-focus"><span>语法</span><div><small>Trọng tâm ngữ pháp</small><strong>${escapeHtml(lesson.grammar)}</strong></div></div>
+      </div>`,
+    write: `
+      <div class="lesson-writing-preview">
+        <div class="stroke-preview"><span>${Array.from(words[0]?.hanzi || "学")[0]}</span><i></i></div>
+        <div><span class="skill-kicker">✍️ Luyện viết</span><h3>Xem thứ tự nét rồi viết theo</h3><p>Nét mẫu chạy lần lượt như video bạn gửi. Sau đó chuyển sang ô mễ tự để tự viết và chấm độ phủ nét.</p><button class="primary-button" type="button" data-action="lesson-write">Mở phòng luyện viết →</button></div>
+      </div>`,
+  }[activeLessonSkill];
+
+  main.innerHTML = `
+    <section class="course-lesson-hero" data-level="${lesson.level}">
+      <button class="back-link" type="button" data-page="learn">← Giáo trình HSK ${lesson.level}</button>
+      <div class="course-lesson-title"><span class="lesson-hero-emoji">${lesson.emoji}</span><div><p class="eyebrow">HSK ${lesson.level} · Bài ${lesson.unit}/15</p><h2>${escapeHtml(lesson.title)}</h2><p>${escapeHtml(lesson.subtitle)}</p></div><div class="lesson-ring" style="--progress:${stats.percent}%"><strong>${stats.percent}%</strong><small>từ vựng</small></div></div>
+      <div class="course-skill-tabs" role="tablist" aria-label="Bốn kỹ năng">
+        ${[["listen", "听", "Nghe"], ["speak", "说", "Nói"], ["read", "读", "Đọc"], ["write", "写", "Viết"]].map(([id, hanzi, label]) => `<button type="button" role="tab" aria-selected="${activeLessonSkill === id}" class="course-skill-tab ${activeLessonSkill === id ? "is-active" : ""}" data-action="lesson-skill" data-skill="${id}"><b>${hanzi}</b><span>${label}</span></button>`).join("")}
+      </div>
+    </section>
+    <section class="card course-skill-panel">${skillContent}</section>
+    <section class="lesson-vocab-strip"><div><span class="skill-kicker">🀄 Từ mới bài này</span><h3>${words.length} từ/cụm từ trọng tâm</h3></div><div class="vocab-chips">${words.slice(0, 8).map((word) => `<button type="button" data-action="speak" data-word="${word.id}"><strong>${word.hanzi}</strong><small>${escapeHtml(word.pinyin)}</small></button>`).join("")}</div></section>
+    <section class="course-lesson-actions"><button class="secondary-button" type="button" data-action="start-course-quiz">${icon("spark")} Quiz bài ${lesson.unit}</button><button class="primary-button" type="button" data-action="start-course-flashcards">${icon("play")} Học ${words.length} flashcard</button></section>
   `;
 }
 
@@ -465,9 +530,9 @@ function renderReview() {
       <div><h2>Mức độ ghi nhớ theo bài</h2><p>Từ được xem là “nhớ tốt” khi đã vượt qua ít nhất 3 vòng ôn.</p></div>
     </div>
     <section class="mastery-list" aria-label="Tiến độ ghi nhớ">
-      ${LESSONS.map((lesson) => {
+      ${LESSONS.filter((lesson) => lesson.level === selectedLevel).map((lesson) => {
         const stats = lessonStats(lesson.id);
-        return `<article class="mastery-row"><strong>Bài ${lesson.id}</strong><div class="mini-progress" aria-label="${stats.masteryPercent}% nhớ tốt"><span style="--progress: ${stats.masteryPercent}%"></span></div><span>${stats.mastered}/12</span></article>`;
+        return `<article class="mastery-row"><strong>HSK ${lesson.level} · Bài ${lesson.unit}</strong><div class="mini-progress" aria-label="${stats.masteryPercent}% nhớ tốt"><span style="--progress: ${stats.masteryPercent}%"></span></div><span>${stats.mastered}/${stats.total}</span></article>`;
       }).join("")}
     </section>
   `;
@@ -485,7 +550,7 @@ function startFlashcards(source, lessonId) {
       ...words.filter((word) => getProgress(word.id).seen && getProgress(word.id).due <= Date.now()),
       ...words.filter((word) => getProgress(word.id).seen && getProgress(word.id).due > Date.now()),
     ];
-    title = `Bài ${lesson.id}: ${lesson.title}`;
+    title = `HSK ${lesson.level} · Bài ${lesson.unit}: ${lesson.title}`;
   } else {
     const due = getDueWords();
     const seen = getSeenWords();
@@ -631,9 +696,9 @@ function renderFlashcardComplete() {
   `;
 }
 
-function startQuiz() {
+function startQuiz(poolOverride = null) {
   const seen = getSeenWords();
-  const pool = seen.length >= 8 ? seen : getLessonWords(1);
+  const pool = poolOverride?.length ? poolOverride : seen.length >= 8 ? seen : getLessonWords(1);
   const targets = shuffle(pool).slice(0, Math.min(10, pool.length));
   const types = ["meaning", "hanzi", "listening"];
   quizSession = {
@@ -805,7 +870,7 @@ function renderQuizComplete() {
 function renderWords() {
   main.innerHTML = `
     <div class="section-header">
-      <div><h2>Kho từ HSK 1 khởi động</h2><p>Tìm bằng chữ Hán, pinyin hoặc nghĩa tiếng Việt.</p></div>
+      <div><h2>Kho từ HSK 1–3</h2><p>Tìm bằng chữ Hán, pinyin hoặc nghĩa tiếng Việt.</p></div>
     </div>
     <section class="word-toolbar" aria-label="Bộ lọc từ vựng">
       <label class="search-wrap" aria-label="Tìm từ">
@@ -813,8 +878,8 @@ function renderWords() {
         <input class="search-input" id="word-search" type="search" placeholder="Ví dụ: 你好, nǐ hǎo, xin chào…" value="${escapeHtml(wordSearch)}" autocomplete="off" />
       </label>
       <select class="select-input" id="word-lesson-filter" aria-label="Lọc theo bài">
-        <option value="all">Tất cả 6 bài</option>
-        ${LESSONS.map((lesson) => `<option value="${lesson.id}" ${String(lesson.id) === wordLessonFilter ? "selected" : ""}>Bài ${lesson.id}: ${escapeHtml(lesson.title)}</option>`).join("")}
+        <option value="all">Tất cả 45 bài</option>
+        ${LESSONS.map((lesson) => `<option value="${lesson.id}" ${String(lesson.id) === wordLessonFilter ? "selected" : ""}>HSK ${lesson.level} · Bài ${lesson.unit}: ${escapeHtml(lesson.title)}</option>`).join("")}
       </select>
       <button class="secondary-button ${favoritesOnly ? "is-active" : ""}" type="button" data-action="toggle-favorites">${icon("heart")} ${favoritesOnly ? "Đang xem yêu thích" : "Từ yêu thích"}</button>
     </section>
@@ -883,6 +948,10 @@ function renderWrite() {
     <div class="section-header">
       <div><h2>Tập viết trên ô mễ tự</h2><p>Dùng chuột hoặc ngón tay viết đè theo chữ mẫu mờ.</p></div>
     </div>
+    <section class="stroke-order-stage card">
+      <div class="stroke-order-copy"><span class="skill-kicker">✦ Thứ tự nét động</span><h2>Xem từng nét của chữ <b>${Array.from(selected.hanzi)[0]}</b></h2><p>Nét đang viết đổi màu đỏ, các nét còn lại hiện mờ giống mẫu bạn gửi.</p><div class="stroke-controls"><button class="primary-button" type="button" data-action="animate-strokes">▶ Phát thứ tự nét</button><button class="secondary-button" type="button" data-action="stroke-quiz">✍ Viết theo nét</button></div></div>
+      <div class="stroke-demo-shell"><div id="stroke-demo" aria-label="Minh họa thứ tự nét chữ ${Array.from(selected.hanzi)[0]}"></div><span class="stroke-status" id="stroke-status">Bấm Phát để xem</span></div>
+    </section>
     <section class="writing-layout">
       <article class="card writing-card">
         <div class="character-selector">
@@ -904,7 +973,7 @@ function renderWrite() {
       <aside class="card writing-tip-card">
         <p class="eyebrow">Mẹo cho người mới</p>
         <h2>Viết chậm để nhớ hình chữ</h2>
-        <p>Bản luyện này giúp làm quen mặt chữ và vận động tay; chưa chấm đúng sai thứ tự nét.</p>
+        <p>Khung động chấm đúng thứ tự nét; ô lớn bên cạnh giúp luyện vận động tay và độ cân của chữ.</p>
         <div class="tip-list">
           <div class="tip-item"><span class="tip-number">1</span><span><strong>Nhìn tổng thể</strong><small>Quan sát chữ mẫu và vị trí trong bốn ô.</small></span></div>
           <div class="tip-item"><span class="tip-number">2</span><span><strong>Viết theo nét mờ</strong><small>Giữ chữ cân giữa, đừng vội viết thật nhanh.</small></span></div>
@@ -918,7 +987,64 @@ function renderWrite() {
       </aside>
     </section>
   `;
-  requestAnimationFrame(setupWritingCanvas);
+  requestAnimationFrame(() => {
+    setupWritingCanvas();
+    setupStrokeAnimator();
+  });
+}
+
+function setupStrokeAnimator() {
+  const target = document.querySelector("#stroke-demo");
+  const selected = getWord(selectedWritingId) || WRITING_WORDS[0];
+  const character = Array.from(selected?.hanzi || "学")[0];
+  hanziWriter = null;
+  if (!target || !window.HanziWriter) {
+    if (target) target.innerHTML = `<span class="stroke-fallback">${character}</span><small>Cần internet để tải dữ liệu thứ tự nét lần đầu.</small>`;
+    return;
+  }
+  const size = Math.min(270, Math.max(210, target.clientWidth || 250));
+  hanziWriter = window.HanziWriter.create("stroke-demo", character, {
+    width: size,
+    height: size,
+    padding: 16,
+    showOutline: true,
+    showCharacter: false,
+    strokeAnimationSpeed: 1.25,
+    delayBetweenStrokes: 520,
+    strokeColor: "#d52d42",
+    radicalColor: "#17243f",
+    outlineColor: "#d7d9df",
+    drawingColor: "#d52d42",
+    drawingWidth: 18,
+    highlightColor: "#ffb3bd",
+  });
+}
+
+function animateStrokeOrder() {
+  const status = document.querySelector("#stroke-status");
+  if (!hanziWriter) {
+    showToast("Dữ liệu nét đang được tải, thử lại sau một chút nhé.", "✎");
+    return;
+  }
+  status.textContent = "Đang viết từng nét…";
+  hanziWriter.cancelQuiz?.();
+  hanziWriter.animateCharacter({ onComplete: () => { status.textContent = "Xong! Bây giờ thử tự viết nhé."; } });
+}
+
+function startStrokeQuiz() {
+  const status = document.querySelector("#stroke-status");
+  if (!hanziWriter) return;
+  hanziWriter.quiz({
+    showHintAfterMisses: 2,
+    highlightOnComplete: true,
+    onMistake: (data) => { status.textContent = `Nét ${data.strokeNum + 1}: thử lại theo gợi ý màu đỏ.`; },
+    onCorrectStroke: (data) => { status.textContent = `Đúng nét ${data.strokeNum + 1}/${data.strokesRemaining + data.strokeNum + 1} ✓`; },
+    onComplete: () => {
+      status.textContent = "Viết đúng toàn bộ thứ tự nét! +10 XP 🎉";
+      recordStudy({ wordId: selectedWritingId, xp: 10, type: "write" });
+      launchConfetti(18);
+    },
+  });
 }
 
 function setupWritingCanvas() {
@@ -1007,25 +1133,64 @@ function completeWriting() {
   renderWrite();
 }
 
-function speakWord(wordId) {
+function speakChineseText(text, rate = 0.78, onend) {
   if (!state.sound) {
     showToast("Âm thanh đang tắt trong cài đặt.", "🔇");
     return;
   }
-  const word = getWord(wordId);
-  if (!word || !("speechSynthesis" in window)) {
+  if (!text || !("speechSynthesis" in window)) {
     showToast("Thiết bị này chưa hỗ trợ đọc phát âm.", "!");
     return;
   }
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(word.hanzi);
+  const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = "zh-CN";
-  utterance.rate = 0.78;
+  utterance.rate = rate;
   utterance.pitch = 1;
+  if (onend) utterance.onend = onend;
   const voices = window.speechSynthesis.getVoices();
   const chineseVoice = voices.find((voice) => /^zh(-|_)/i.test(voice.lang));
   if (chineseVoice) utterance.voice = chineseVoice;
   window.speechSynthesis.speak(utterance);
+}
+
+function speakWord(wordId) {
+  const word = getWord(wordId);
+  speakChineseText(word?.hanzi);
+}
+
+function playDialogue(startIndex = 0) {
+  const lesson = getCourseLesson(selectedCourseLessonId);
+  if (!lesson) return;
+  const line = lesson.dialogue[startIndex];
+  if (!line) return;
+  speakChineseText(line.hanzi, 0.76, () => {
+    if (startIndex + 1 < lesson.dialogue.length) setTimeout(() => playDialogue(startIndex + 1), 320);
+  });
+}
+
+function practiceSpeaking() {
+  const result = document.querySelector("#speech-result");
+  const lesson = getCourseLesson(selectedCourseLessonId);
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    result.textContent = "Trình duyệt chưa hỗ trợ chấm giọng nói. Hãy nghe mẫu rồi tự nhại lại nhé.";
+    speakChineseText(lesson?.dialogue[0]?.hanzi, 0.68);
+    return;
+  }
+  const recognition = new Recognition();
+  recognition.lang = "zh-CN";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  result.textContent = "Đang nghe… hãy nói câu mẫu 🎙";
+  recognition.onresult = (event) => {
+    const heard = event.results[0][0].transcript;
+    result.innerHTML = `App nghe được: <strong>${escapeHtml(heard)}</strong> · +5 XP`;
+    recordStudy({ xp: 5, type: "speak" });
+    launchConfetti(12);
+  };
+  recognition.onerror = () => { result.textContent = "Chưa nghe rõ. Chạm và thử nói lại chậm hơn nhé."; };
+  recognition.start();
 }
 
 function bindGlobalEvents() {
@@ -1053,7 +1218,28 @@ function bindGlobalEvents() {
     if (!actionElement) return;
     const action = actionElement.dataset.action;
 
-    if (action === "start-lesson") startFlashcards("lesson", actionElement.dataset.lesson);
+    if (action === "start-lesson") openCourseLesson(actionElement.dataset.lesson);
+    if (action === "select-level") {
+      selectedLevel = Number(actionElement.dataset.level) || 1;
+      renderLearn();
+    }
+    if (action === "lesson-skill") {
+      activeLessonSkill = actionElement.dataset.skill;
+      renderCourseLesson();
+    }
+    if (action === "play-dialogue") playDialogue();
+    if (action === "play-line") {
+      const lesson = getCourseLesson(selectedCourseLessonId);
+      speakChineseText(lesson?.dialogue[Number(actionElement.dataset.line)]?.hanzi, 0.72);
+    }
+    if (action === "practice-speaking") practiceSpeaking();
+    if (action === "start-course-flashcards") startFlashcards("lesson", selectedCourseLessonId);
+    if (action === "start-course-quiz") startQuiz(getLessonWords(selectedCourseLessonId));
+    if (action === "lesson-write") {
+      const writingWord = getLessonWords(selectedCourseLessonId).find((word) => Array.from(word.hanzi).length === 1);
+      if (writingWord) selectedWritingId = writingWord.id;
+      navigate("write");
+    }
     if (action === "start-review") startFlashcards("review");
     if (action === "flip-card") flipCard();
     if (action === "rate-card") rateCard(actionElement.dataset.rating);
@@ -1078,6 +1264,8 @@ function bindGlobalEvents() {
       redrawWritingCanvas();
     }
     if (action === "complete-writing") completeWriting();
+    if (action === "animate-strokes") animateStrokeOrder();
+    if (action === "stroke-quiz") startStrokeQuiz();
   });
 
   document.addEventListener("keydown", (event) => {
