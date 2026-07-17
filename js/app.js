@@ -11,6 +11,63 @@ const STORAGE_KEY = "hanzigo-state-v1";
 const DAY_MS = 86_400_000;
 const REVIEW_INTERVALS = [0, 1, 3, 7, 14, 30];
 
+const STANDARD_HSK_BLUEPRINTS = {
+  1: {
+    total: 40, minutes: 40, testMinutes: 35, maxScore: 200, passScore: 120,
+    sections: [
+      { key: "listening", label: "Nghe", icon: "🎧", count: 20, parts: [
+        ["listen-picture-judge", 5, "Phần 1", "Nghe cụm từ và phán đoán hình ảnh đúng hay sai"],
+        ["listen-picture-choice", 5, "Phần 2", "Nghe câu và chọn hình ảnh phù hợp"],
+        ["listen-dialogue-picture", 5, "Phần 3", "Nghe hội thoại và chọn hình ảnh phù hợp"],
+        ["listen-response", 5, "Phần 4", "Nghe câu hỏi và chọn câu trả lời"],
+      ] },
+      { key: "reading", label: "Đọc", icon: "阅", count: 20, parts: [
+        ["read-picture-judge", 5, "Phần 1", "Đối chiếu từ hoặc câu với hình ảnh"],
+        ["read-picture-choice", 5, "Phần 2", "Đọc câu và chọn hình ảnh phù hợp"],
+        ["read-match", 5, "Phần 3", "Ghép câu hỏi với câu trả lời"],
+        ["read-fill", 5, "Phần 4", "Chọn từ thích hợp điền vào chỗ trống"],
+      ] },
+    ],
+  },
+  2: {
+    total: 60, minutes: 55, testMinutes: 50, maxScore: 200, passScore: 120,
+    sections: [
+      { key: "listening", label: "Nghe", icon: "🎧", count: 35, parts: [
+        ["listen-picture-judge", 10, "Phần 1", "Nghe câu và phán đoán hình ảnh đúng hay sai"],
+        ["listen-picture-choice", 10, "Phần 2", "Nghe hội thoại và chọn hình ảnh phù hợp"],
+        ["listen-dialogue-choice", 10, "Phần 3", "Nghe hội thoại ngắn và chọn đáp án"],
+        ["listen-long-dialogue", 5, "Phần 4", "Nghe hội thoại dài hơn và chọn đáp án"],
+      ] },
+      { key: "reading", label: "Đọc", icon: "阅", count: 25, parts: [
+        ["read-picture-choice", 5, "Phần 1", "Đọc câu và chọn hình ảnh phù hợp"],
+        ["read-fill", 5, "Phần 2", "Chọn từ thích hợp điền vào chỗ trống"],
+        ["read-judge", 5, "Phần 3", "Phán đoán hai câu có phù hợp hay không"],
+        ["read-match", 10, "Phần 4", "Ghép câu hỏi hoặc câu nói với câu trả lời"],
+      ] },
+    ],
+  },
+  3: {
+    total: 80, minutes: 90, testMinutes: 85, maxScore: 300, passScore: 180,
+    sections: [
+      { key: "listening", label: "Nghe", icon: "🎧", count: 40, parts: [
+        ["listen-dialogue-picture", 10, "Phần 1", "Nghe hội thoại và chọn hình ảnh phù hợp"],
+        ["listen-judge", 10, "Phần 2", "Nghe nội dung và phán đoán câu cho sẵn"],
+        ["listen-dialogue-choice", 10, "Phần 3", "Nghe hội thoại ngắn và chọn đáp án"],
+        ["listen-long-dialogue", 10, "Phần 4", "Nghe hội thoại dài hơn và chọn đáp án"],
+      ] },
+      { key: "reading", label: "Đọc", icon: "阅", count: 30, parts: [
+        ["read-match", 10, "Phần 1", "Ghép câu nói với câu trả lời"],
+        ["read-fill", 10, "Phần 2", "Chọn từ thích hợp điền vào chỗ trống"],
+        ["read-passage", 10, "Phần 3", "Đọc đoạn ngắn và chọn đáp án"],
+      ] },
+      { key: "writing", label: "Viết", icon: "✍", count: 10, parts: [
+        ["write-reorder", 5, "Phần 1", "Sắp xếp các thành phần thành câu hoàn chỉnh"],
+        ["write-character", 5, "Phần 2", "Viết chữ Hán theo pinyin"],
+      ] },
+    ],
+  },
+};
+
 const PAGE_META = {
   home: ["Trang chủ", "HSK 1 · Bộ khởi động"],
   learn: ["Bài học", "45 bài · HSK 1 đến HSK 3"],
@@ -45,6 +102,7 @@ let writingStrokes = [];
 let installPrompt = null;
 let selectedLevel = 1;
 let selectedExamLevel = 1;
+let selectedExamCategory = "standard";
 let selectedCourseLessonId = 1;
 let activeLessonSkill = "listen";
 let hanziWriter = null;
@@ -263,7 +321,7 @@ function render() {
   pageEyebrow.textContent = eyebrow;
 
   document.querySelectorAll("[data-page]").forEach((button) => {
-    const activePage = ["flashcards", "lesson"].includes(currentPage) ? "learn" : currentPage === "quiz" ? (quizSession?.mode === "exam" ? "exams" : "review") : currentPage;
+    const activePage = ["flashcards", "lesson"].includes(currentPage) ? "learn" : currentPage === "quiz" ? (["exam", "standard"].includes(quizSession?.mode) ? "exams" : "review") : currentPage;
     button.classList.toggle("is-active", button.dataset.page === activePage);
     if (button.classList.contains("nav-item")) {
       button.setAttribute("aria-current", button.dataset.page === activePage ? "page" : "false");
@@ -716,14 +774,15 @@ function renderFlashcardComplete() {
 }
 
 function renderExams() {
-  const history = state.examHistory.slice(0, 6);
+  const history = state.examHistory.filter((item) => (item.category || "vocabulary") === selectedExamCategory).slice(0, 6);
   const best = history.length ? Math.max(...history.map((item) => item.percent)) : 0;
   const average = history.length ? Math.round(history.reduce((sum, item) => sum + item.percent, 0) / history.length) : 0;
   const levelPool = VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === selectedExamLevel);
   const examMinutes = Math.ceil(levelPool.length * 0.65);
+  const standard = STANDARD_HSK_BLUEPRINTS[selectedExamLevel];
   main.innerHTML = `
     <section class="exam-hero card">
-      <div><span class="exam-promo-kicker">HanziGo Test Center</span><h2>30 đề ôn trọn bộ từ vựng</h2><p>Mỗi cấp có 10 đề. Trong từng đề, mọi từ của cấp HSK đó đều xuất hiện ít nhất một lần dưới dạng nghe, nhận mặt chữ hoặc chọn nghĩa.</p></div>
+      <div><span class="exam-promo-kicker">HanziGo Test Center</span><h2>60 đề luyện HSK theo hai mục tiêu</h2><p>30 đề thi thử bám số phần, số câu và thời gian HSK thật; 30 đề tổng ôn giúp phủ toàn bộ từ vựng trong ứng dụng.</p></div>
       <div class="exam-hero-score"><strong>${best}%</strong><small>Điểm cao nhất</small></div>
     </section>
     <section class="exam-summary" aria-label="Tổng quan luyện thi">
@@ -731,18 +790,24 @@ function renderExams() {
       <article class="card"><span>◎</span><strong>${average}%</strong><small>Điểm trung bình</small></article>
       <article class="card"><span>🏆</span><strong>${best}%</strong><small>Kỷ lục cá nhân</small></article>
     </section>
-    <div class="section-header"><div><h2>Kho 30 đề HSK</h2><p>Chọn cấp độ rồi làm lần lượt 10 đề.</p></div></div>
-    <section class="exam-level-tabs" aria-label="Chọn cấp độ đề thi">${[1, 2, 3].map((level) => `<button type="button" data-action="select-exam-level" data-level="${level}" class="${selectedExamLevel === level ? "is-active" : ""}"><span>HSK ${level}</span><small>10 đề · ${VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === level).length} từ/đề</small></button>`).join("")}</section>
+    <section class="exam-category-tabs" aria-label="Chọn loại đề">
+      <button type="button" data-action="select-exam-category" data-category="standard" class="${selectedExamCategory === "standard" ? "is-active" : ""}"><span>🎓 Thi thử chuẩn HSK</span><small>Đúng số phần, số câu và thời gian</small></button>
+      <button type="button" data-action="select-exam-category" data-category="vocabulary" class="${selectedExamCategory === "vocabulary" ? "is-active" : ""}"><span>📚 Tổng ôn từ vựng</span><small>Mỗi đề phủ 100% từ của cấp</small></button>
+    </section>
+    <div class="section-header"><div><h2>${selectedExamCategory === "standard" ? "30 đề thi thử chuẩn cấu trúc" : "30 đề tổng ôn từ vựng"}</h2><p>Chọn cấp độ rồi làm lần lượt 10 đề.</p></div></div>
+    <section class="exam-level-tabs" aria-label="Chọn cấp độ đề thi">${[1, 2, 3].map((level) => { const blueprint = STANDARD_HSK_BLUEPRINTS[level]; return `<button type="button" data-action="select-exam-level" data-level="${level}" class="${selectedExamLevel === level ? "is-active" : ""}"><span>HSK ${level}</span><small>${selectedExamCategory === "standard" ? `${blueprint.total} câu · ${blueprint.minutes} phút` : `10 đề · ${VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === level).length} từ/đề`}</small></button>`; }).join("")}</section>
+    ${selectedExamCategory === "standard" ? `<section class="official-structure card"><div><b>Cấu trúc HSK ${selectedExamLevel}</b><span>${standard.sections.map((section) => `${section.label}: ${section.count} câu`).join(" · ")}</span></div><div><b>${standard.maxScore} điểm</b><span>Đạt từ ${standard.passScore} điểm</span></div></section>` : ""}
     <section class="exam-grid ten-exams">
       ${Array.from({ length: 10 }, (_, index) => {
         const examNumber = index + 1;
-        const attempts = state.examHistory.filter((item) => item.level === selectedExamLevel && item.examNumber === examNumber);
+        const attempts = state.examHistory.filter((item) => item.level === selectedExamLevel && item.examNumber === examNumber && (item.category || "vocabulary") === selectedExamCategory);
         const examBest = attempts.length ? Math.max(...attempts.map((item) => item.percent)) : null;
+        if (selectedExamCategory === "standard") return `<article class="card exam-card official-exam-card level-${selectedExamLevel}"><div class="exam-card-top"><span class="exam-level">HSK <b>${selectedExamLevel}</b></span><span class="exam-status">${examBest === null ? "Chưa làm" : `Cao nhất ${examBest}%`}</span></div><h3>Đề thi thử chuẩn số ${examNumber}</h3><p>${standard.total} câu · ${standard.minutes} phút · ${standard.maxScore} điểm</p><div class="standard-section-pills">${standard.sections.map((section) => `<span>${section.icon} ${section.label} ${section.count}</span>`).join("")}</div><small class="original-note">Nội dung tự biên soạn theo cấu trúc chính thức</small><button class="primary-button" type="button" data-action="start-standard-exam" data-level="${selectedExamLevel}" data-exam="${examNumber}">Vào phòng thi</button></article>`;
         return `<article class="card exam-card level-${selectedExamLevel}"><div class="exam-card-top"><span class="exam-level">HSK <b>${selectedExamLevel}</b></span><span class="exam-status">${examBest === null ? "Chưa làm" : `Cao nhất ${examBest}%`}</span></div><h3>Đề tổng ôn số ${examNumber}</h3><p>${levelPool.length} câu · Toàn bộ ${levelPool.length} từ · ${examMinutes} phút</p><div class="exam-coverage"><span style="--coverage:100%"></span><small>Phủ 100% từ vựng HSK ${selectedExamLevel}</small></div><div class="exam-tags"><span>🎧 Nghe</span><span>字 Mặt chữ</span><span>译 Nghĩa</span></div><button class="primary-button" type="button" data-action="start-mock-exam" data-level="${selectedExamLevel}" data-exam="${examNumber}">Bắt đầu đề ${examNumber}</button></article>`;
       }).join("")}
     </section>
     <div class="section-header"><div><h2>Lịch sử gần đây</h2><p>Kết quả được lưu riêng trên thiết bị này.</p></div></div>
-    <section class="card exam-history">${history.length ? history.map((item) => `<div class="exam-history-row"><span class="history-level">HSK ${item.level}</span><span><strong>Đề ${item.examNumber || 1} · ${item.score}/${item.total}</strong><small>${new Date(item.date).toLocaleDateString("vi-VN")}</small></span><b class="history-score ${item.percent >= 70 ? "is-pass" : ""}">${item.percent}%</b></div>`).join("") : `<div class="empty-history"><span>📊</span><p>Chưa có kết quả. Làm đề đầu tiên để mở biểu đồ tiến bộ nhé.</p></div>`}</section>
+    <section class="card exam-history">${history.length ? history.map((item) => `<div class="exam-history-row"><span class="history-level">HSK ${item.level}</span><span><strong>${(item.category || "vocabulary") === "standard" ? "Thi thử" : "Tổng ôn"} ${item.examNumber || 1} · ${item.points != null ? `${item.points}/${item.maxScore} điểm` : `${item.score}/${item.total}`}</strong><small>${new Date(item.date).toLocaleDateString("vi-VN")}</small></span><b class="history-score ${item.percent >= 60 ? "is-pass" : ""}">${item.percent}%</b></div>`).join("") : `<div class="empty-history"><span>📊</span><p>Chưa có kết quả cho loại đề này. Bắt đầu đề số 1 nhé.</p></div>`}</section>
   `;
 }
 
@@ -767,10 +832,133 @@ function startMockExam(level, examNumber = 1) {
   startExamClock();
 }
 
+function visualForWord(word) {
+  const text = normalizeText(`${word.meaning} ${word.hanzi}`);
+  const visuals = [
+    ["xin chao|chao|你好", "👋"], ["cam on|谢谢", "🙏"], ["nguoi|ban|他|她|我|你", "🧑"],
+    ["gia dinh|me|ba|bo|妈妈|爸爸", "👨‍👩‍👧"], ["truong|hoc|学生|老师", "🏫"], ["sach|书", "📖"],
+    ["an|com|饭|菜", "🍚"], ["uong|nuoc|tra|水|茶", "🥤"], ["qua|trai cay|苹果", "🍎"],
+    ["nha|家", "🏠"], ["benh vien|医生|医院", "🏥"], ["xe|tau|车", "🚌"], ["may bay|飞机", "✈️"],
+    ["mua|雨", "🌧️"], ["nong|热", "☀️"], ["lanh|冷", "❄️"], ["thoi gian|gio|点|时候", "🕒"],
+    ["dien thoai|电话", "📱"], ["may tinh|电脑", "💻"], ["tien|钱", "💰"], ["mua hang|商店|买", "🛍️"],
+    ["cho|狗", "🐶"], ["meo|猫", "🐱"], ["yeu|thich|爱|喜欢", "❤️"], ["cuoi|vui|高兴", "😊"],
+  ];
+  return visuals.find(([pattern]) => pattern.split("|").some((term) => text.includes(normalizeText(term))))?.[1]
+    || getCourseLesson(word.lesson)?.emoji || "🀄";
+}
+
+function standardChoices(target, pool, seed, labelMode = "hanzi", count = 3) {
+  const ordered = seededExamOrder(pool.filter((word) => word.id !== target.id), seed);
+  const selected = [target, ...ordered.slice(0, count - 1)];
+  return seededExamOrder(selected, seed + 29).map((word) => ({
+    id: word.id,
+    label: labelMode === "visual" ? "" : labelMode === "meaning" ? word.meaning : word.hanzi,
+    visual: labelMode === "visual" ? visualForWord(word) : null,
+  }));
+}
+
+function dialogueChoices(target, pool, seed) {
+  const targetLesson = getCourseLesson(target.lesson);
+  const ordered = seededExamOrder(LESSONS.filter((lesson) => lesson.id !== targetLesson.id), seed).slice(0, 2);
+  const choices = [targetLesson, ...ordered].map((lesson) => ({
+    id: `lesson-${lesson.id}`,
+    label: lesson.dialogue[1]?.hanzi || lesson.title,
+  }));
+  return { choices: seededExamOrder(choices, seed + 7), correctId: `lesson-${targetLesson.id}` };
+}
+
+function cleanChineseSentence(text) {
+  return String(text || "").replace(/[。！？?!，,；;：:]/g, "").trim();
+}
+
+function sentenceChunks(sentence) {
+  const chars = Array.from(cleanChineseSentence(sentence));
+  if (chars.length <= 3) return chars;
+  const size = Math.ceil(chars.length / 3);
+  return [chars.slice(0, size).join(""), chars.slice(size, size * 2).join(""), chars.slice(size * 2).join("")].filter(Boolean);
+}
+
+function buildStandardQuestion({ kind, target, pool, seed, section, sectionLabel, partLabel, instruction, level, index }) {
+  const lesson = getCourseLesson(target.lesson);
+  const ordered = seededExamOrder(pool.filter((word) => word.id !== target.id), seed + 3);
+  const distractor = ordered[0] || target;
+  const base = { target, type: "standard", standardKind: kind, section, sectionLabel, partLabel, instruction, correctId: target.id, pinyinHint: level === 1 ? target.pinyin : null };
+
+  if (kind === "listen-picture-judge" || kind === "read-picture-judge") {
+    const matches = index % 2 === 0;
+    return { ...base, audioText: kind.startsWith("listen") ? target.example || target.hanzi : null, displayText: kind.startsWith("read") ? target.example : null, visual: visualForWord(matches ? target : distractor), correctId: matches ? "true" : "false", options: [{ id: "true", label: "Đúng ✓" }, { id: "false", label: "Sai ✕" }] };
+  }
+  if (["listen-picture-choice", "listen-dialogue-picture", "read-picture-choice"].includes(kind)) {
+    return { ...base, audioText: kind.startsWith("listen") ? (kind === "listen-dialogue-picture" ? lesson.dialogue.map((line) => line.hanzi).join("。") : target.example || target.hanzi) : null, displayText: kind.startsWith("read") ? target.example : null, options: standardChoices(target, pool, seed, "visual", 3) };
+  }
+  if (kind === "listen-response" || kind === "read-match") {
+    const matched = dialogueChoices(target, pool, seed);
+    return { ...base, audioText: kind === "listen-response" ? lesson.dialogue[0]?.hanzi : null, displayText: kind === "read-match" ? lesson.dialogue[0]?.hanzi : null, options: matched.choices, correctId: matched.correctId };
+  }
+  if (kind === "listen-judge" || kind === "read-judge") {
+    const matches = index % 2 === 0;
+    return { ...base, audioText: kind === "listen-judge" ? target.example : null, displayText: kind === "listen-judge" ? (matches ? target.example : distractor.example) : `${target.example}<br>${matches ? target.example : distractor.example}`, correctId: matches ? "true" : "false", options: [{ id: "true", label: "Đúng ✓" }, { id: "false", label: "Sai ✕" }] };
+  }
+  if (kind === "listen-dialogue-choice" || kind === "listen-long-dialogue") {
+    const audio = `${lesson.dialogue.map((line) => line.hanzi).join("。")}。${target.example}`;
+    return { ...base, audioText: audio, displayText: "Nghe rồi chọn ý phù hợp nhất", options: standardChoices(target, pool, seed, "meaning", 3) };
+  }
+  if (kind === "read-fill") {
+    const sentence = (target.example || target.hanzi).replace(target.hanzi, "______");
+    return { ...base, displayText: sentence, options: standardChoices(target, pool, seed, "hanzi", 4) };
+  }
+  if (kind === "read-passage") {
+    const lessonChoices = seededExamOrder([lesson, ...seededExamOrder(LESSONS.filter((item) => item.id !== lesson.id), seed).slice(0, 2)], seed + 12);
+    return { ...base, passage: lesson.dialogue.map((line) => `${line.speaker}：${line.hanzi}`).join("\n"), displayText: "Đoạn hội thoại phù hợp nhất với chủ đề nào?", options: lessonChoices.map((item) => ({ id: `lesson-${item.id}`, label: item.title })), correctId: `lesson-${lesson.id}` };
+  }
+  if (kind === "write-reorder") {
+    const answerText = cleanChineseSentence(lesson.dialogue[index % lesson.dialogue.length]?.hanzi || target.example);
+    const tokens = seededExamOrder(sentenceChunks(answerText), seed + 41);
+    return { ...base, answerText, tokens, correctId: answerText };
+  }
+  if (kind === "write-character") {
+    const singlePool = VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level <= level && Array.from(word.hanzi).length === 1);
+    const single = seededExamOrder(singlePool, seed + index)[0] || target;
+    return { ...base, target: single, answerText: Array.from(single.hanzi)[0], displayText: single.pinyin, correctId: Array.from(single.hanzi)[0] };
+  }
+  return { ...base, options: standardChoices(target, pool, seed, "meaning", 3) };
+}
+
+function buildStandardExam(level, examNumber) {
+  const blueprint = STANDARD_HSK_BLUEPRINTS[level];
+  const pool = VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level <= level);
+  const ordered = seededExamOrder(pool, level * 1000 + examNumber * 73);
+  const questions = [];
+  let cursor = 0;
+  for (const section of blueprint.sections) {
+    for (const [kind, count, partLabel, instruction] of section.parts) {
+      for (let index = 0; index < count; index += 1) {
+        const target = ordered[cursor % ordered.length];
+        questions.push(buildStandardQuestion({ kind, target, pool, seed: level * 10000 + examNumber * 500 + cursor, section: section.key, sectionLabel: section.label, partLabel, instruction, level, index }));
+        cursor += 1;
+      }
+    }
+  }
+  return questions;
+}
+
+function startStandardExam(level, examNumber = 1) {
+  const blueprint = STANDARD_HSK_BLUEPRINTS[level];
+  quizSession = {
+    mode: "standard", category: "standard", level, examNumber,
+    startedAt: Date.now(), duration: blueprint.testMinutes * 60 * 1000,
+    questions: buildStandardExam(level, examNumber), index: 0, score: 0, xp: 0,
+    answered: null, celebrated: false, saved: false, sectionScores: {}, draftIndices: [],
+  };
+  navigate("quiz", { updateHash: false });
+  startExamClock();
+  setTimeout(playStandardAudio, 220);
+}
+
 function startExamClock() {
   if (examTimer) clearInterval(examTimer);
   examTimer = setInterval(() => {
-    if (!quizSession || quizSession.mode !== "exam") return clearInterval(examTimer);
+    if (!quizSession || !["exam", "standard"].includes(quizSession.mode)) return clearInterval(examTimer);
     const remaining = Math.max(0, quizSession.duration - (Date.now() - quizSession.startedAt));
     const clock = document.querySelector("#exam-clock");
     if (clock) clock.textContent = formatExamTime(remaining);
@@ -848,10 +1036,11 @@ function renderQuiz() {
   const question = quizSession.questions[quizSession.index];
   const progress = Math.round((quizSession.index / quizSession.questions.length) * 100);
   const answered = quizSession.answered;
-  const prompt = quizPrompt(question);
-  const typeLabel = question.type === "meaning" ? "Chọn nghĩa" : question.type === "hanzi" ? "Nhận mặt chữ" : "Luyện nghe";
-  const typeIcon = question.type === "listening" ? "🎧" : question.type === "hanzi" ? "字" : "译";
-  const isExam = quizSession.mode === "exam";
+  const isStandard = quizSession.mode === "standard";
+  const prompt = isStandard ? standardQuestionPrompt(question) : quizPrompt(question);
+  const typeLabel = isStandard ? `${question.sectionLabel} · ${question.partLabel}` : question.type === "meaning" ? "Chọn nghĩa" : question.type === "hanzi" ? "Nhận mặt chữ" : "Luyện nghe";
+  const typeIcon = isStandard ? (question.section === "listening" ? "🎧" : question.section === "writing" ? "✍" : "阅") : question.type === "listening" ? "🎧" : question.type === "hanzi" ? "字" : "译";
+  const isExam = ["exam", "standard"].includes(quizSession.mode);
   const remaining = isExam ? Math.max(0, quizSession.duration - (Date.now() - quizSession.startedAt)) : 0;
 
   main.innerHTML = `
@@ -859,22 +1048,48 @@ function renderQuiz() {
       <div class="study-topline">
         <button class="icon-button" type="button" data-page="${isExam ? "exams" : "review"}" aria-label="Thoát quiz">${icon("close")}</button>
         <div class="mini-progress" aria-label="Tiến độ ${progress}%"><span style="--progress: ${progress}%"></span></div>
-        ${isExam ? `<span class="exam-clock" id="exam-clock">⏱ ${formatExamTime(remaining)}</span>` : `<span class="study-count">${quizSession.index + 1}/${quizSession.questions.length}</span>`}
+        <span class="study-count">${quizSession.index + 1}/${quizSession.questions.length}</span>
+        ${isExam ? `<span class="exam-clock" id="exam-clock">⏱ ${formatExamTime(remaining)}</span>` : ""}
       </div>
       <article class="card quiz-card">
         <span class="quiz-type"><span aria-hidden="true">${typeIcon}</span> ${typeLabel}</span>
+        ${isStandard ? `<p class="standard-instruction">${escapeHtml(question.instruction)}</p>` : ""}
         <div class="quiz-question">${prompt}</div>
-        <div class="quiz-options">
-          ${question.options.map((option, index) => {
-            const isCorrect = answered && option.id === question.target.id;
-            const isWrong = answered && option.id === answered.selectedId && !answered.correct;
-            return `<button class="quiz-option ${isCorrect ? "is-correct" : ""} ${isWrong ? "is-wrong" : ""}" type="button" data-action="answer-quiz" data-word="${option.id}" ${answered ? "disabled" : ""}><span class="option-letter">${String.fromCharCode(65 + index)}</span><span class="${question.type === "meaning" ? "" : "option-hanzi"}">${escapeHtml(option.label)}</span></button>`;
-          }).join("")}
-        </div>
+        ${isStandard && question.section === "writing" ? renderStandardWriting(question, answered) : `<div class="quiz-options ${isStandard ? "standard-options" : ""}">${question.options.map((option, index) => {
+          const correctId = question.correctId || question.target.id;
+          const optionCorrect = answered && option.id === correctId;
+          const optionWrong = answered && option.id === answered.selectedId && !answered.correct;
+          return `<button class="quiz-option ${optionCorrect ? "is-correct" : ""} ${optionWrong ? "is-wrong" : ""} ${option.visual ? "visual-option" : ""}" type="button" data-action="answer-quiz" data-word="${escapeHtml(option.id)}" ${answered ? "disabled" : ""}><span class="option-letter">${String.fromCharCode(65 + index)}</span>${option.visual ? `<span class="option-visual" aria-hidden="true">${option.visual}</span>` : ""}<span class="${question.type === "meaning" ? "" : "option-hanzi"}">${escapeHtml(option.label || "")}</span></button>`;
+        }).join("")}</div>`}
         ${answered ? renderQuizFeedback(question, answered) : ""}
       </article>
     </section>
   `;
+}
+
+function standardQuestionPrompt(question) {
+  const audio = question.audioText ? `<button class="listen-button standard-audio-button" type="button" data-action="play-standard-audio" aria-label="Nghe nội dung câu hỏi">${icon("volume")}</button><small class="audio-hint">Bấm loa để nghe lại</small>` : "";
+  const visual = question.visual ? `<div class="question-visual" aria-label="Hình minh họa">${question.visual}</div>` : "";
+  const passage = question.passage ? `<div class="standard-passage">${escapeHtml(question.passage).replaceAll("\n", "<br>")}</div>` : "";
+  const display = question.displayText ? `<div class="standard-display">${escapeHtml(question.displayText).replace("&lt;br&gt;", "<br>")}${question.pinyinHint ? `<small>${escapeHtml(question.pinyinHint)}</small>` : ""}</div>` : "";
+  if (question.section === "writing" && question.standardKind === "write-reorder") return `<p>Sắp xếp các cụm dưới đây thành một câu đúng.</p>`;
+  if (question.section === "writing" && question.standardKind === "write-character") return `<p>Viết một chữ Hán phù hợp với pinyin:</p><h2 class="pinyin-writing-prompt">${escapeHtml(question.displayText)}</h2>`;
+  return `${audio}${visual}${passage}${display}`;
+}
+
+function renderStandardWriting(question, answered) {
+  if (question.standardKind === "write-reorder") {
+    const used = new Set(quizSession.draftIndices || []);
+    const draft = (quizSession.draftIndices || []).map((index) => question.tokens[index]).join("");
+    return `<div class="standard-writing-box"><div class="reorder-tokens">${question.tokens.map((token, index) => `<button type="button" data-action="append-standard-token" data-index="${index}" ${used.has(index) || answered ? "disabled" : ""}>${escapeHtml(token)}</button>`).join("")}</div><div class="reorder-answer ${draft ? "has-answer" : ""}">${draft ? escapeHtml(draft) : "Chạm các cụm theo đúng thứ tự"}</div><div class="writing-submit-row"><button class="secondary-button" type="button" data-action="clear-standard-draft" ${answered ? "disabled" : ""}>Xóa và làm lại</button><button class="primary-button" type="button" data-action="submit-standard-writing" ${!draft || answered ? "disabled" : ""}>Nộp câu trả lời</button></div></div>`;
+  }
+  return `<div class="standard-writing-box"><label class="character-answer-label"><span>Nhập chữ Hán</span><input id="standard-character-answer" maxlength="1" autocomplete="off" inputmode="text" ${answered ? "disabled" : ""} /></label><button class="primary-button" type="button" data-action="submit-standard-writing" ${answered ? "disabled" : ""}>Nộp câu trả lời</button></div>`;
+}
+
+function playStandardAudio() {
+  const question = quizSession?.questions?.[quizSession.index];
+  if (!question?.audioText) return;
+  speakChineseText(question.audioText, quizSession.level === 1 ? 0.68 : 0.78);
 }
 
 function quizPrompt(question) {
@@ -888,10 +1103,11 @@ function quizPrompt(question) {
 }
 
 function renderQuizFeedback(question, answered) {
+  const answerLabel = question.section === "writing" ? question.answerText : question.options?.find((option) => option.id === (question.correctId || question.target.id))?.label || question.target.hanzi;
   return `
     <div class="quiz-feedback">
       <span class="feedback-icon" aria-hidden="true">${answered.correct ? "✓" : "↗"}</span>
-      <div><strong>${answered.correct ? "Chính xác!" : `Đáp án: ${question.target.hanzi}`}</strong><small>${escapeHtml(question.target.pinyin)} · ${escapeHtml(question.target.meaning)}</small></div>
+      <div><strong>${answered.correct ? "Chính xác!" : `Đáp án: ${escapeHtml(answerLabel)}`}</strong><small>${escapeHtml(question.target.pinyin)} · ${escapeHtml(question.target.meaning)}</small></div>
       <button class="primary-button" type="button" data-action="next-question">${quizSession.index + 1 === quizSession.questions.length ? "Xem kết quả" : "Tiếp theo"}</button>
     </div>
   `;
@@ -900,7 +1116,7 @@ function renderQuizFeedback(question, answered) {
 function answerQuiz(selectedId) {
   if (!quizSession || quizSession.answered) return;
   const question = quizSession.questions[quizSession.index];
-  const correct = selectedId === question.target.id;
+  const correct = selectedId === (question.correctId || question.target.id);
   const old = getProgress(question.target.id);
   const xp = correct ? 12 : 2;
 
@@ -918,6 +1134,7 @@ function answerQuiz(selectedId) {
   state.stats.correct += correct ? 1 : 0;
   state.stats.wrong += correct ? 0 : 1;
   quizSession.score += correct ? 1 : 0;
+  if (question.section && correct) quizSession.sectionScores[question.section] = (quizSession.sectionScores[question.section] || 0) + 1;
   quizSession.xp += xp;
   quizSession.answered = { selectedId, correct };
   recordStudy({ wordId: question.target.id, xp, type: "quiz" });
@@ -925,37 +1142,64 @@ function answerQuiz(selectedId) {
   renderQuiz();
 }
 
+function answerStandardWriting() {
+  if (!quizSession || quizSession.answered) return;
+  const question = quizSession.questions[quizSession.index];
+  let response = "";
+  if (question.standardKind === "write-reorder") {
+    response = (quizSession.draftIndices || []).map((index) => question.tokens[index]).join("");
+  } else {
+    response = document.querySelector("#standard-character-answer")?.value.trim() || "";
+  }
+  if (!response) {
+    showToast("Bạn hãy nhập câu trả lời trước nhé.", "✍");
+    return;
+  }
+  answerQuiz(response);
+}
+
 function nextQuizQuestion() {
   if (!quizSession?.answered) return;
   quizSession.index += 1;
   quizSession.answered = null;
+  quizSession.draftIndices = [];
   renderQuiz();
   const next = quizSession.questions[quizSession.index];
-  if (next?.type === "listening") setTimeout(() => speakWord(next.target.id), 120);
+  if (next?.audioText) setTimeout(playStandardAudio, 180);
+  else if (next?.type === "listening") setTimeout(() => speakWord(next.target.id), 120);
 }
 
 function renderQuizComplete() {
-  if (!quizSession.celebrated && quizSession.score >= Math.ceil(quizSession.questions.length * 0.7)) {
+  const isStandard = quizSession.mode === "standard";
+  const blueprint = isStandard ? STANDARD_HSK_BLUEPRINTS[quizSession.level] : null;
+  const standardBreakdown = isStandard ? blueprint.sections.map((section) => {
+    const correct = quizSession.sectionScores[section.key] || 0;
+    return { ...section, correct, points: Math.round((correct / section.count) * 100) };
+  }) : [];
+  const points = isStandard ? standardBreakdown.reduce((sum, section) => sum + section.points, 0) : null;
+  const passed = isStandard ? points >= blueprint.passScore : quizSession.score >= Math.ceil(quizSession.questions.length * 0.7);
+  if (!quizSession.celebrated && passed) {
     quizSession.celebrated = true;
     launchConfetti();
   }
   const total = quizSession.questions.length;
-  const percent = Math.round((quizSession.score / total) * 100);
-  const message = percent >= 90 ? "Xuất sắc, phản xạ rất tốt!" : percent >= 70 ? "Ổn lắm, bạn đang nhớ khá chắc." : "Không sao, ôn lại thẻ rồi thử tiếp nhé.";
-  const isExam = quizSession.mode === "exam";
+  const percent = isStandard ? Math.round((points / blueprint.maxScore) * 100) : Math.round((quizSession.score / total) * 100);
+  const message = isStandard ? (passed ? "Bạn đã đạt mốc điểm mô phỏng. Xem từng kỹ năng để biết phần mạnh nhất nhé." : "Chưa đạt mốc mô phỏng lần này. Hãy xem phần điểm thấp nhất rồi luyện lại.") : percent >= 90 ? "Xuất sắc, phản xạ rất tốt!" : percent >= 70 ? "Ổn lắm, bạn đang nhớ khá chắc." : "Không sao, ôn lại thẻ rồi thử tiếp nhé.";
+  const isExam = ["exam", "standard"].includes(quizSession.mode);
   if (isExam && !quizSession.saved) {
     quizSession.saved = true;
-    state.examHistory.unshift({ level: quizSession.level, examNumber: quizSession.examNumber || 1, score: quizSession.score, total, percent, date: new Date().toISOString() });
-    state.examHistory = state.examHistory.slice(0, 60);
+    state.examHistory.unshift({ category: isStandard ? "standard" : "vocabulary", level: quizSession.level, examNumber: quizSession.examNumber || 1, score: quizSession.score, total, percent, points, maxScore: blueprint?.maxScore, sectionScores: isStandard ? quizSession.sectionScores : null, date: new Date().toISOString() });
+    state.examHistory = state.examHistory.slice(0, 120);
     saveState();
   }
 
   main.innerHTML = `
     <section class="card session-complete">
-      <div class="complete-icon" aria-hidden="true">${percent >= 70 ? "🏆" : "🌱"}</div>
-      <p class="eyebrow">${isExam ? `Kết quả HSK ${quizSession.level} · Đề ${quizSession.examNumber || 1}` : "Kết quả quiz"}</p>
-      <h2>${quizSession.score}/${total} câu đúng</h2>
+      <div class="complete-icon" aria-hidden="true">${passed ? "🏆" : "🌱"}</div>
+      <p class="eyebrow">${isExam ? `${isStandard ? "Thi thử chuẩn" : "Tổng ôn"} HSK ${quizSession.level} · Đề ${quizSession.examNumber || 1}` : "Kết quả quiz"}</p>
+      <h2>${isStandard ? `${points}/${blueprint.maxScore} điểm` : `${quizSession.score}/${total} câu đúng`}</h2>
       <p>${message}</p>
+      ${isStandard ? `<div class="official-result-status ${passed ? "is-pass" : ""}">${passed ? "ĐẠT" : "CHƯA ĐẠT"} · Mốc ${blueprint.passScore}/${blueprint.maxScore}</div><div class="section-score-grid">${standardBreakdown.map((section) => `<div><span>${section.icon}</span><strong>${section.points}/100</strong><small>${section.label} · ${section.correct}/${section.count} câu</small></div>`).join("")}</div>` : ""}
       <div class="complete-stats">
         <div class="complete-stat"><strong>${percent}%</strong><small>Độ chính xác</small></div>
         <div class="complete-stat"><strong>${total - quizSession.score}</strong><small>Câu cần ôn</small></div>
@@ -963,7 +1207,7 @@ function renderQuizComplete() {
       </div>
       <div class="complete-actions">
         <button class="secondary-button" type="button" data-page="${isExam ? "exams" : "review"}">${isExam ? "Xem lịch sử" : "Về ôn tập"}</button>
-        <button class="primary-button" type="button" data-action="${isExam ? "start-mock-exam" : "start-quiz"}" ${isExam ? `data-level="${quizSession.level}" data-exam="${quizSession.examNumber || 1}"` : ""}>${icon("refresh")} Thử lại</button>
+        <button class="primary-button" type="button" data-action="${isStandard ? "start-standard-exam" : isExam ? "start-mock-exam" : "start-quiz"}" ${isExam ? `data-level="${quizSession.level}" data-exam="${quizSession.examNumber || 1}"` : ""}>${icon("refresh")} Thử lại</button>
       </div>
     </section>
   `;
@@ -1346,10 +1590,26 @@ function bindGlobalEvents() {
     if (action === "start-course-flashcards") startFlashcards("lesson", selectedCourseLessonId);
     if (action === "start-course-quiz") startQuiz(getLessonWords(selectedCourseLessonId));
     if (action === "start-mock-exam") startMockExam(Number(actionElement.dataset.level) || 1, Number(actionElement.dataset.exam) || 1);
+    if (action === "start-standard-exam") startStandardExam(Number(actionElement.dataset.level) || 1, Number(actionElement.dataset.exam) || 1);
     if (action === "select-exam-level") {
       selectedExamLevel = Number(actionElement.dataset.level) || 1;
       renderExams();
     }
+    if (action === "select-exam-category") {
+      selectedExamCategory = actionElement.dataset.category === "vocabulary" ? "vocabulary" : "standard";
+      renderExams();
+    }
+    if (action === "play-standard-audio") playStandardAudio();
+    if (action === "append-standard-token") {
+      const index = Number(actionElement.dataset.index);
+      if (!quizSession.draftIndices.includes(index)) quizSession.draftIndices.push(index);
+      renderQuiz();
+    }
+    if (action === "clear-standard-draft") {
+      quizSession.draftIndices = [];
+      renderQuiz();
+    }
+    if (action === "submit-standard-writing") answerStandardWriting();
     if (action === "lesson-write") {
       const writingWord = getLessonWords(selectedCourseLessonId)[0];
       if (writingWord) selectedWritingId = writingWord.id;

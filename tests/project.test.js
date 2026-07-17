@@ -36,3 +36,15 @@ test("service worker cache đầy đủ các tài nguyên cốt lõi", () => {
     assert.ok(worker.includes(asset), `Cache chưa có ${asset}`);
   }
 });
+
+test("trung tâm thi thử khai báo đúng quy mô HSK 1–3", () => {
+  const app = readFileSync(resolve(root, "js/app.js"), "utf8");
+  for (const expected of [
+    "total: 40, minutes: 40, testMinutes: 35, maxScore: 200, passScore: 120",
+    "total: 60, minutes: 55, testMinutes: 50, maxScore: 200, passScore: 120",
+    "total: 80, minutes: 90, testMinutes: 85, maxScore: 300, passScore: 180",
+  ]) assert.ok(app.includes(expected), `Thiếu cấu trúc ${expected}`);
+  assert.ok(app.includes("Array.from({ length: 10 }"), "Mỗi cấp chưa có 10 đề");
+  assert.ok(app.includes("buildStandardExam"), "Thiếu bộ sinh đề thi thử");
+  assert.ok(app.includes("write-reorder") && app.includes("write-character"), "HSK 3 thiếu hai dạng viết");
+});
