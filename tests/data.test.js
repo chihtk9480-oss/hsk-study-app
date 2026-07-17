@@ -47,9 +47,7 @@ test("mỗi mục từ có đủ trường cần cho flashcard và quiz", () => 
   }
 });
 
-test("danh sách luyện viết chỉ chứa chữ Hán đơn", () => {
-  assert.ok(WRITING_WORDS.length >= 20);
-  for (const word of WRITING_WORDS) {
-    assert.equal(Array.from(word.hanzi).length, 1);
-  }
+test("mọi từ vựng đều có trong phòng luyện viết theo bài", () => {
+  assert.equal(WRITING_WORDS.length, VOCABULARY.length);
+  assert.ok(WRITING_WORDS.every((word) => Array.from(word.hanzi).length >= 1));
 });

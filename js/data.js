@@ -778,9 +778,8 @@ const STARTER_VOCABULARY = [
 export const LESSONS = COURSE_LESSONS;
 export const VOCABULARY = [...STARTER_VOCABULARY, ...EXTRA_VOCABULARY];
 
-export const WRITING_WORDS = VOCABULARY.filter(
-  (word) => Array.from(word.hanzi).length === 1,
-);
+// Mọi mục từ đều có thể luyện viết; từ nhiều chữ được tách thành từng chữ trong phòng viết.
+export const WRITING_WORDS = VOCABULARY;
 
 export function getLessonWords(lessonId) {
   return VOCABULARY.filter((word) => word.lesson === Number(lessonId));

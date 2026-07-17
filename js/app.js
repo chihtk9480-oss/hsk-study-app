@@ -39,6 +39,8 @@ let wordSearch = "";
 let wordLessonFilter = "all";
 let favoritesOnly = false;
 let selectedWritingId = WRITING_WORDS[0]?.id;
+let selectedWritingLesson = 1;
+let activeWritingCharacter = 0;
 let writingStrokes = [];
 let installPrompt = null;
 let selectedLevel = 1;
@@ -1031,25 +1033,33 @@ function toggleFavorite(wordId) {
 function renderWrite() {
   const selected = getWord(selectedWritingId) || WRITING_WORDS[0];
   selectedWritingId = selected.id;
+  selectedWritingLesson = Number(selected.lesson) || selectedWritingLesson;
+  const lessonWords = getLessonWords(selectedWritingLesson);
+  const characters = Array.from(selected.hanzi);
+  activeWritingCharacter = Math.min(activeWritingCharacter, characters.length - 1);
+  const character = characters[activeWritingCharacter] || characters[0];
   main.innerHTML = `
     <div class="section-header">
-      <div><h2>Tập viết trên ô mễ tự</h2><p>Dùng chuột hoặc ngón tay viết đè theo chữ mẫu mờ.</p></div>
+      <div><h2>Luyện viết theo từng bài</h2><p>Chọn bài, chọn từ rồi luyện từng chữ theo đúng thứ tự nét.</p></div>
     </div>
+    <section class="writing-course-picker card">
+      <label><span>Cấp độ và bài học</span><select class="select-input" id="writing-lesson-select">${LESSONS.map((lesson) => `<option value="${lesson.id}" ${lesson.id === selectedWritingLesson ? "selected" : ""}>HSK ${lesson.level} · Bài ${lesson.unit}: ${escapeHtml(lesson.title)}</option>`).join("")}</select></label>
+      <label><span>Từ cần luyện</span><select class="select-input character-pick" id="writing-word-select">${lessonWords.map((word) => `<option value="${word.id}" ${word.id === selected.id ? "selected" : ""}>${word.hanzi} · ${escapeHtml(word.pinyin)}</option>`).join("")}</select></label>
+      <div class="writing-character-tabs" aria-label="Chọn chữ trong từ">${characters.map((item, index) => `<button type="button" class="${index === activeWritingCharacter ? "is-active" : ""}" data-action="writing-character" data-index="${index}">${item}</button>`).join("")}</div>
+    </section>
     <section class="stroke-order-stage card">
-      <div class="stroke-order-copy"><span class="skill-kicker">✦ Thứ tự nét động</span><h2>Xem từng nét của chữ <b>${Array.from(selected.hanzi)[0]}</b></h2><p>Nét đang viết đổi màu đỏ, các nét còn lại hiện mờ giống mẫu bạn gửi.</p><div class="stroke-controls"><button class="primary-button" type="button" data-action="animate-strokes">▶ Phát thứ tự nét</button><button class="secondary-button" type="button" data-action="stroke-quiz">✍ Viết theo nét</button></div></div>
-      <div class="stroke-demo-shell"><div id="stroke-demo" aria-label="Minh họa thứ tự nét chữ ${Array.from(selected.hanzi)[0]}"></div><span class="stroke-status" id="stroke-status">Bấm Phát để xem</span></div>
+      <div class="stroke-order-copy"><span class="skill-kicker">✦ Thứ tự nét động · ${selected.hanzi}</span><h2>Xem từng nét của chữ <b>${character}</b></h2><p>Đang luyện chữ ${activeWritingCharacter + 1}/${characters.length} trong từ “${selected.hanzi}”. Nét đang viết đổi màu đỏ, các nét còn lại hiện mờ.</p><div class="stroke-controls"><button class="primary-button" type="button" data-action="animate-strokes">▶ Phát thứ tự nét</button><button class="secondary-button" type="button" data-action="stroke-quiz">✍ Viết theo nét</button></div></div>
+      <div class="stroke-demo-shell"><div id="stroke-demo" aria-label="Minh họa thứ tự nét chữ ${character}"></div><span class="stroke-status" id="stroke-status">Bấm Phát để xem</span></div>
     </section>
     <section class="writing-layout">
       <article class="card writing-card">
         <div class="character-selector">
           <div class="character-info"><h2>${selected.hanzi} · ${state.showPinyin ? escapeHtml(selected.pinyin) : "Pinyin đang ẩn"}</h2><p>${escapeHtml(selected.meaning)}</p></div>
-          <select class="select-input character-pick" id="writing-word-select" aria-label="Chọn chữ để luyện">
-            ${WRITING_WORDS.map((word) => `<option value="${word.id}" ${word.id === selected.id ? "selected" : ""}>${word.hanzi} · ${escapeHtml(word.pinyin)}</option>`).join("")}
-          </select>
+          <span class="writing-lesson-badge">HSK ${getCourseLesson(selected.lesson)?.level || 1} · Bài ${getCourseLesson(selected.lesson)?.unit || selected.lesson}</span>
         </div>
         <div class="writing-grid">
-          <span class="guide-character" aria-hidden="true">${selected.hanzi}</span>
-          <canvas id="writing-canvas" aria-label="Vùng luyện viết chữ ${selected.hanzi}"></canvas>
+          <span class="guide-character" aria-hidden="true">${character}</span>
+          <canvas id="writing-canvas" aria-label="Vùng luyện viết chữ ${character}"></canvas>
         </div>
         <div class="writing-actions">
           <button class="secondary-button" type="button" data-action="undo-stroke">${icon("undo")} Hoàn tác</button>
@@ -1069,7 +1079,7 @@ function renderWrite() {
         <button class="secondary-button" type="button" data-action="speak" data-word="${selected.id}">${icon("volume")} Nghe lại phát âm</button>
         <div class="writing-stats">
           <div class="writing-stat"><strong>${state.stats.writes}</strong><small>Lượt đã luyện</small></div>
-          <div class="writing-stat"><strong>${WRITING_WORDS.length}</strong><small>Chữ đơn có sẵn</small></div>
+          <div class="writing-stat"><strong>${WRITING_WORDS.length}</strong><small>Từ theo 45 bài</small></div>
         </div>
       </aside>
     </section>
@@ -1083,7 +1093,7 @@ function renderWrite() {
 function setupStrokeAnimator() {
   const target = document.querySelector("#stroke-demo");
   const selected = getWord(selectedWritingId) || WRITING_WORDS[0];
-  const character = Array.from(selected?.hanzi || "学")[0];
+  const character = Array.from(selected?.hanzi || "学")[activeWritingCharacter] || Array.from(selected?.hanzi || "学")[0];
   hanziWriter = null;
   if (!target || !window.HanziWriter) {
     if (target) target.innerHTML = `<span class="stroke-fallback">${character}</span><small>Cần internet để tải dữ liệu thứ tự nét lần đầu.</small>`;
@@ -1324,8 +1334,10 @@ function bindGlobalEvents() {
     if (action === "start-course-quiz") startQuiz(getLessonWords(selectedCourseLessonId));
     if (action === "start-mock-exam") startMockExam(Number(actionElement.dataset.level) || 1);
     if (action === "lesson-write") {
-      const writingWord = getLessonWords(selectedCourseLessonId).find((word) => Array.from(word.hanzi).length === 1);
+      const writingWord = getLessonWords(selectedCourseLessonId)[0];
       if (writingWord) selectedWritingId = writingWord.id;
+      selectedWritingLesson = selectedCourseLessonId;
+      activeWritingCharacter = 0;
       navigate("write");
     }
     if (action === "start-review") startFlashcards("review");
@@ -1354,6 +1366,11 @@ function bindGlobalEvents() {
     if (action === "complete-writing") completeWriting();
     if (action === "animate-strokes") animateStrokeOrder();
     if (action === "stroke-quiz") startStrokeQuiz();
+    if (action === "writing-character") {
+      activeWritingCharacter = Number(actionElement.dataset.index) || 0;
+      writingStrokes = [];
+      renderWrite();
+    }
   });
 
   document.addEventListener("keydown", (event) => {
@@ -1378,6 +1395,14 @@ function bindGlobalEvents() {
     }
     if (event.target.id === "writing-word-select") {
       selectedWritingId = event.target.value;
+      activeWritingCharacter = 0;
+      writingStrokes = [];
+      renderWrite();
+    }
+    if (event.target.id === "writing-lesson-select") {
+      selectedWritingLesson = Number(event.target.value) || 1;
+      selectedWritingId = getLessonWords(selectedWritingLesson)[0]?.id;
+      activeWritingCharacter = 0;
       writingStrokes = [];
       renderWrite();
     }

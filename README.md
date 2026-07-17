@@ -7,7 +7,7 @@ HanziGo là ứng dụng web học HSK 1–3 bằng tiếng Việt, thiết kế
 - 45 bài học: 15 bài cho mỗi cấp HSK 1, HSK 2 và HSK 3.
 - Mỗi bài có khu luyện nghe, nói, đọc và viết; hội thoại, điểm ngữ pháp và từ vựng theo chủ đề.
 - Phát âm tiếng Trung, luyện nói bằng nhận dạng giọng nói trên trình duyệt hỗ trợ.
-- Minh họa thứ tự nét chữ Hán, điều chỉnh tốc độ và chế độ tự luyện theo từng nét.
+- Phòng luyện viết theo đủ 45 bài; từ nhiều chữ được tách để luyện lần lượt từng chữ, có thứ tự nét động.
 - Trung tâm luyện thi với đề mô phỏng HSK 1–3, đồng hồ 15 phút, chấm điểm và lịch sử kết quả.
 - Flashcard lật thẻ, phát âm tiếng Hoa bằng giọng có sẵn trên thiết bị.
 - Ôn cách quãng theo mức “Quên rồi / Hơi khó / Nhớ rồi”.
