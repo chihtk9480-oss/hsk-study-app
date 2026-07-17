@@ -98,6 +98,7 @@ let favoritesOnly = false;
 let selectedWritingId = WRITING_WORDS[0]?.id;
 let selectedWritingLesson = 1;
 let activeWritingCharacter = 0;
+let writingReturnPage = null;
 let writingStrokes = [];
 let installPrompt = null;
 let selectedLevel = 1;
@@ -121,6 +122,7 @@ const defaultState = () => ({
   studiedDates: [],
   progress: {},
   favorites: [],
+  mistakeWords: {},
   examHistory: [],
   stats: {
     flashcards: 0,
@@ -160,6 +162,9 @@ function loadState() {
       progress: stored.progress || {},
       favorites: Array.isArray(stored.favorites) ? stored.favorites : [],
       examHistory: Array.isArray(stored.examHistory) ? stored.examHistory : [],
+      mistakeWords: stored.mistakeWords && typeof stored.mistakeWords === "object"
+        ? stored.mistakeWords
+        : Object.fromEntries(Object.entries(stored.progress || {}).filter(([, item]) => item?.wrong > 0).map(([id, item]) => [id, { count: item.wrong, lastWrong: item.lastReviewed || Date.now() }])),
       studiedDates: Array.isArray(stored.studiedDates)
         ? stored.studiedDates
         : [],
@@ -233,6 +238,26 @@ function getProgress(wordId) {
 
 function setProgress(wordId, patch) {
   state.progress[wordId] = { ...getProgress(wordId), ...patch };
+}
+
+function recordMistake(wordId) {
+  if (!getWord(wordId)) return;
+  const current = state.mistakeWords[wordId] || { count: 0, lastWrong: 0 };
+  state.mistakeWords[wordId] = { count: current.count + 1, lastWrong: Date.now() };
+}
+
+function getMistakeWords() {
+  return Object.entries(state.mistakeWords)
+    .sort(([, a], [, b]) => (b.lastWrong || 0) - (a.lastWrong || 0))
+    .map(([id]) => getWord(id))
+    .filter(Boolean);
+}
+
+function removeMistake(wordId) {
+  delete state.mistakeWords[wordId];
+  saveState();
+  showToast("Đã đánh dấu từ này là đã nhớ.", "✓");
+  if (currentPage === "review") renderReview();
 }
 
 function lessonStats(lessonId) {
@@ -584,6 +609,7 @@ function renderCourseLesson() {
 function renderReview() {
   const due = getDueWords();
   const seen = getSeenWords();
+  const mistakes = getMistakeWords();
   const reviewCount = due.length || Math.min(10, seen.length || 10);
 
   main.innerHTML = `
@@ -605,6 +631,11 @@ function renderReview() {
       </article>
     </section>
 
+    <section class="card mistake-notebook">
+      <div class="mistake-notebook-head"><div><p class="eyebrow">Sổ từ làm sai</p><h2>${mistakes.length ? `${mistakes.length} từ cần củng cố` : "Chưa có từ nào bị sai"}</h2><p>${mistakes.length ? "App tự gom từ bạn chọn sai trong quiz và đề thi. Ôn hoặc luyện viết trực tiếp tại đây." : "Những từ chọn sai khi làm đề sẽ tự động xuất hiện ở đây."}</p></div>${mistakes.length ? `<button class="primary-button" type="button" data-action="start-mistake-review">${icon("refresh")} Ôn flashcard</button>` : ""}</div>
+      ${mistakes.length ? `<div class="mistake-word-list">${mistakes.slice(0, 15).map((word) => `<article><div><strong>${word.hanzi}</strong><span>${state.showPinyin ? escapeHtml(word.pinyin) : "Pinyin đang ẩn"}</span><small>${escapeHtml(word.meaning)} · sai ${state.mistakeWords[word.id]?.count || 1} lần</small></div><div class="mistake-actions"><button type="button" data-action="speak" data-word="${word.id}" aria-label="Nghe ${word.hanzi}">${icon("volume")}</button><button type="button" data-action="open-writing-word" data-word="${word.id}">✍ Luyện viết</button><button type="button" data-action="remove-mistake" data-word="${word.id}">Đã nhớ</button></div></article>`).join("")}</div>` : `<div class="mistake-empty">🎯 Cứ làm đề bình thường; app sẽ lo phần ghi lại lỗi sai.</div>`}
+    </section>
+
     <div class="section-header">
       <div><h2>Mức độ ghi nhớ theo bài</h2><p>Từ được xem là “nhớ tốt” khi đã vượt qua ít nhất 3 vòng ôn.</p></div>
     </div>
@@ -617,7 +648,7 @@ function renderReview() {
   `;
 }
 
-function startFlashcards(source, lessonId) {
+function startFlashcards(source, lessonId, wordIds = null) {
   let deck;
   let title;
 
@@ -630,6 +661,10 @@ function startFlashcards(source, lessonId) {
       ...words.filter((word) => getProgress(word.id).seen && getProgress(word.id).due > Date.now()),
     ];
     title = `HSK ${lesson.level} · Bài ${lesson.unit}: ${lesson.title}`;
+  } else if (source === "mistakes") {
+    const requested = Array.isArray(wordIds) && wordIds.length ? wordIds.map(getWord).filter(Boolean) : getMistakeWords();
+    deck = requested;
+    title = "Ôn lại những từ vừa làm sai";
   } else {
     const due = getDueWords();
     const seen = getSeenWords();
@@ -691,6 +726,7 @@ function renderFlashcards() {
               ${state.showPinyin ? `<p class="example-pinyin">${escapeHtml(word.examplePinyin)}</p>` : ""}
               <p class="example-meaning">${escapeHtml(word.exampleMeaning)}</p>
             </div>
+            <button class="flashcard-write-button" type="button" data-action="open-writing-word" data-word="${word.id}">✍ Luyện viết ngay từ này</button>
           </div>
         </div>
       </div>
@@ -828,7 +864,7 @@ function startMockExam(level, examNumber = 1) {
   quizSession = {
     mode: "exam", level, examNumber, startedAt: Date.now(), duration: Math.ceil(pool.length * 0.65) * 60 * 1000,
     questions: targets.map((word, index) => buildQuestion(word, types[(index + examNumber - 1) % types.length], pool)),
-    index: 0, score: 0, xp: 0, answered: null, celebrated: false, saved: false,
+    index: 0, score: 0, xp: 0, answered: null, celebrated: false, saved: false, wrongIds: [],
   };
   navigate("quiz", { updateHash: false });
   startExamClock();
@@ -950,7 +986,7 @@ function startStandardExam(level, examNumber = 1) {
     mode: "standard", category: "standard", level, examNumber,
     startedAt: Date.now(), duration: blueprint.testMinutes * 60 * 1000,
     questions: buildStandardExam(level, examNumber), index: 0, score: 0, xp: 0,
-    answered: null, celebrated: false, saved: false, sectionScores: {}, draftIndices: [],
+    answered: null, celebrated: false, saved: false, sectionScores: {}, draftIndices: [], wrongIds: [],
   };
   navigate("quiz", { updateHash: false });
   startExamClock();
@@ -991,6 +1027,7 @@ function startQuiz(poolOverride = null) {
     xp: 0,
     answered: null,
     celebrated: false,
+    wrongIds: [],
   };
   navigate("quiz", { updateHash: false });
   if (quizSession.questions[0]?.type === "listening") {
@@ -1110,7 +1147,7 @@ function renderQuizFeedback(question, answered) {
     <div class="quiz-feedback">
       <span class="feedback-icon" aria-hidden="true">${answered.correct ? "✓" : "↗"}</span>
       <div><strong>${answered.correct ? "Chính xác!" : `Đáp án: ${escapeHtml(answerLabel)}`}</strong><small>${escapeHtml(question.target.pinyin)} · ${escapeHtml(question.target.meaning)}</small></div>
-      <button class="primary-button" type="button" data-action="next-question">${quizSession.index + 1 === quizSession.questions.length ? "Xem kết quả" : "Tiếp theo"}</button>
+      <div class="feedback-actions"><button class="secondary-button" type="button" data-action="open-writing-word" data-word="${question.target.id}">✍ Luyện viết</button><button class="primary-button" type="button" data-action="next-question">${quizSession.index + 1 === quizSession.questions.length ? "Xem kết quả" : "Tiếp theo"}</button></div>
     </div>
   `;
 }
@@ -1139,6 +1176,11 @@ function answerQuiz(selectedId) {
   if (question.section && correct) quizSession.sectionScores[question.section] = (quizSession.sectionScores[question.section] || 0) + 1;
   quizSession.xp += xp;
   quizSession.answered = { selectedId, correct };
+  if (!correct) {
+    recordMistake(question.target.id);
+    quizSession.wrongIds ||= [];
+    if (!quizSession.wrongIds.includes(question.target.id)) quizSession.wrongIds.push(question.target.id);
+  }
   recordStudy({ wordId: question.target.id, xp, type: "quiz" });
   if (correct) speakWord(question.target.id);
   renderQuiz();
@@ -1188,6 +1230,7 @@ function renderQuizComplete() {
   const percent = isStandard ? Math.round((points / blueprint.maxScore) * 100) : Math.round((quizSession.score / total) * 100);
   const message = isStandard ? (passed ? "Bạn đã đạt mốc điểm mô phỏng. Xem từng kỹ năng để biết phần mạnh nhất nhé." : "Chưa đạt mốc mô phỏng lần này. Hãy xem phần điểm thấp nhất rồi luyện lại.") : percent >= 90 ? "Xuất sắc, phản xạ rất tốt!" : percent >= 70 ? "Ổn lắm, bạn đang nhớ khá chắc." : "Không sao, ôn lại thẻ rồi thử tiếp nhé.";
   const isExam = ["exam", "standard"].includes(quizSession.mode);
+  const sessionMistakes = quizSession.wrongIds || [];
   if (isExam && !quizSession.saved) {
     quizSession.saved = true;
     state.examHistory.unshift({ category: isStandard ? "standard" : "vocabulary", level: quizSession.level, examNumber: quizSession.examNumber || 1, score: quizSession.score, total, percent, points, maxScore: blueprint?.maxScore, sectionScores: isStandard ? quizSession.sectionScores : null, date: new Date().toISOString() });
@@ -1208,6 +1251,7 @@ function renderQuizComplete() {
         <div class="complete-stat"><strong>+${quizSession.xp}</strong><small>XP nhận được</small></div>
       </div>
       <div class="complete-actions">
+        ${sessionMistakes.length ? `<button class="secondary-button mistake-review-button" type="button" data-action="start-session-mistakes">📕 Ôn ${sessionMistakes.length} từ vừa sai</button>` : ""}
         <button class="secondary-button" type="button" data-page="${isExam ? "exams" : "review"}">${isExam ? "Xem lịch sử" : "Về ôn tập"}</button>
         <button class="primary-button" type="button" data-action="${isStandard ? "start-standard-exam" : isExam ? "start-mock-exam" : "start-quiz"}" ${isExam ? `data-level="${quizSession.level}" data-exam="${quizSession.examNumber || 1}"` : ""}>${icon("refresh")} Thử lại</button>
       </div>
@@ -1268,6 +1312,7 @@ function updateWordResults() {
         <span class="word-row-meaning">${escapeHtml(word.meaning)}</span>
         <span class="word-row-actions">
           <button class="small-icon-button" type="button" data-action="speak" data-word="${word.id}" aria-label="Nghe ${word.hanzi}">${icon("volume")}</button>
+          <button class="small-icon-button write-word-button" type="button" data-action="open-writing-word" data-word="${word.id}" aria-label="Luyện viết ${word.hanzi}">✍</button>
           <button class="small-icon-button ${favorite ? "is-favorite" : ""}" type="button" data-action="favorite" data-word="${word.id}" aria-label="${favorite ? "Bỏ yêu thích" : "Thêm yêu thích"} ${word.hanzi}">${icon("heart", favorite)}</button>
         </span>
       </article>
@@ -1289,6 +1334,17 @@ function toggleFavorite(wordId) {
   if (currentPage === "words") updateWordResults();
 }
 
+function openWritingWord(wordId) {
+  const word = getWord(wordId);
+  if (!word) return;
+  if (currentPage !== "write") writingReturnPage = currentPage;
+  selectedWritingId = word.id;
+  selectedWritingLesson = Number(word.lesson) || 1;
+  activeWritingCharacter = 0;
+  writingStrokes = [];
+  navigate("write");
+}
+
 function renderWrite() {
   const selected = getWord(selectedWritingId) || WRITING_WORDS[0];
   selectedWritingId = selected.id;
@@ -1300,6 +1356,7 @@ function renderWrite() {
   main.innerHTML = `
     <div class="section-header">
       <div><h2>Luyện viết theo từng bài</h2><p>Chọn bài, chọn từ rồi luyện từng chữ theo đúng thứ tự nét.</p></div>
+      ${writingReturnPage ? `<button class="secondary-button" type="button" data-action="return-from-writing">← Quay lại ${writingReturnPage === "flashcards" ? "flashcard" : writingReturnPage === "quiz" ? "câu hỏi" : writingReturnPage === "review" ? "sổ từ sai" : "trang trước"}</button>` : ""}
     </div>
     <section class="writing-course-picker card">
       <label><span>Cấp độ và bài học</span><select class="select-input" id="writing-lesson-select">${LESSONS.map((lesson) => `<option value="${lesson.id}" ${lesson.id === selectedWritingLesson ? "selected" : ""}>HSK ${lesson.level} · Bài ${lesson.unit}: ${escapeHtml(lesson.title)}</option>`).join("")}</select></label>
@@ -1602,6 +1659,7 @@ function bindGlobalEvents() {
 
     const pageButton = event.target.closest("[data-page]");
     if (pageButton) {
+      if (pageButton.dataset.page === "write") writingReturnPage = null;
       navigate(pageButton.dataset.page);
       return;
     }
@@ -1654,9 +1712,19 @@ function bindGlobalEvents() {
       if (writingWord) selectedWritingId = writingWord.id;
       selectedWritingLesson = selectedCourseLessonId;
       activeWritingCharacter = 0;
+      writingReturnPage = "lesson";
       navigate("write");
     }
     if (action === "start-review") startFlashcards("review");
+    if (action === "start-mistake-review") startFlashcards("mistakes");
+    if (action === "start-session-mistakes") startFlashcards("mistakes", null, quizSession?.wrongIds || []);
+    if (action === "open-writing-word") openWritingWord(actionElement.dataset.word);
+    if (action === "remove-mistake") removeMistake(actionElement.dataset.word);
+    if (action === "return-from-writing") {
+      const destination = writingReturnPage || "review";
+      writingReturnPage = null;
+      navigate(destination, { updateHash: false });
+    }
     if (action === "flip-card") flipCard();
     if (action === "rate-card") rateCard(actionElement.dataset.rating);
     if (action === "start-quiz") startQuiz();

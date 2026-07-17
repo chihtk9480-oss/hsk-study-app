@@ -48,3 +48,11 @@ test("trung tâm thi thử khai báo đúng quy mô HSK 1–3", () => {
   assert.ok(app.includes("buildStandardExam"), "Thiếu bộ sinh đề thi thử");
   assert.ok(app.includes("write-reorder") && app.includes("write-character"), "HSK 3 thiếu hai dạng viết");
 });
+
+test("từ làm sai có thể ôn và mở thẳng phòng luyện viết", () => {
+  const app = readFileSync(resolve(root, "js/app.js"), "utf8");
+  assert.ok(app.includes("mistakeWords") && app.includes("recordMistake"), "Thiếu sổ từ sai");
+  assert.ok(app.includes("start-session-mistakes"), "Thiếu luồng ôn từ sai sau đề");
+  assert.ok(app.includes("open-writing-word"), "Thiếu nút luyện viết trực tiếp");
+  assert.ok(app.includes("return-from-writing"), "Thiếu nút quay lại phiên ôn");
+});

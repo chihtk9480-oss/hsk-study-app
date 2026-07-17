@@ -8,6 +8,7 @@ HanziGo là ứng dụng web học HSK 1–3 bằng tiếng Việt, thiết kế
 - Mỗi bài có khu luyện nghe, nói, đọc và viết; hội thoại, điểm ngữ pháp và từ vựng theo chủ đề.
 - Phát âm tiếng Trung, luyện nói bằng nhận dạng giọng nói trên trình duyệt hỗ trợ.
 - Tự ưu tiên giọng Trung Natural/Neural của hệ điều hành, phân vai nam–nữ và thêm nhịp nghỉ cho hội thoại.
+- Sổ từ sai tự động sau quiz/đề thi, flashcard ôn riêng và nút luyện viết trực tiếp từ flashcard, đáp án hoặc kho từ.
 - Phòng luyện viết theo đủ 45 bài; từ nhiều chữ được tách để luyện lần lượt từng chữ, có thứ tự nét động.
 - Trung tâm luyện thi gồm 60 đề: 30 đề tổng ôn phủ 100% từ vựng và 30 đề thi thử tự biên soạn bám cấu trúc HSK 1–3 chính thức.
 - Thi thử HSK 1: 40 câu Nghe–Đọc; HSK 2: 60 câu Nghe–Đọc; HSK 3: 80 câu Nghe–Đọc–Viết; có đồng hồ và chấm từng kỹ năng trên thang 100.
