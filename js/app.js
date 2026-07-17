@@ -107,6 +107,7 @@ let selectedCourseLessonId = 1;
 let activeLessonSkill = "listen";
 let hanziWriter = null;
 let examTimer = null;
+let chineseVoices = [];
 
 const defaultState = () => ({
   profileName: "Chi",
@@ -144,6 +145,7 @@ updateShell();
 bindGlobalEvents();
 setupPwa();
 setupConnectivity();
+setupSpeechVoices();
 
 function loadState() {
   try {
@@ -1487,7 +1489,41 @@ function completeWriting() {
   renderWrite();
 }
 
-function speakChineseText(text, rate = 0.78, onend) {
+function refreshChineseVoices() {
+  if (!("speechSynthesis" in window)) return [];
+  chineseVoices = window.speechSynthesis.getVoices()
+    .filter((voice) => /^zh(-|_)/i.test(voice.lang) || /chinese|mandarin|普通话|中文/i.test(voice.name))
+    .sort((a, b) => scoreChineseVoice(b) - scoreChineseVoice(a));
+  return chineseVoices;
+}
+
+function setupSpeechVoices() {
+  if (!("speechSynthesis" in window)) return;
+  refreshChineseVoices();
+  window.speechSynthesis.addEventListener?.("voiceschanged", refreshChineseVoices);
+}
+
+function scoreChineseVoice(voice) {
+  const name = voice.name.toLowerCase();
+  let score = /^zh-cn/i.test(voice.lang) ? 20 : 10;
+  if (/natural|neural|premium|online/.test(name)) score += 100;
+  if (/microsoft|google|apple/.test(name)) score += 25;
+  if (/xiaoxiao|yunxi|yunjian|xiaoyi|huihui|yaoyao|tingting|mei-jia/.test(name)) score += 40;
+  if (/espeak|compact/.test(name)) score -= 30;
+  return score;
+}
+
+function preferredChineseVoice(role = "narrator") {
+  const voices = chineseVoices.length ? chineseVoices : refreshChineseVoices();
+  if (!voices.length) return null;
+  const femalePattern = /xiaoxiao|xiaoyi|huihui|yaoyao|tingting|mei-jia|female|女/i;
+  const malePattern = /yunxi|yunjian|kangkang|danny|male|男/i;
+  if (role === "female") return voices.find((voice) => femalePattern.test(voice.name)) || voices[0];
+  if (role === "male") return voices.find((voice) => malePattern.test(voice.name)) || voices.find((voice) => !femalePattern.test(voice.name)) || voices[0];
+  return voices[0];
+}
+
+function speakChineseText(text, rate = 0.78, onend, { role = "narrator" } = {}) {
   if (!state.sound) {
     showToast("Âm thanh đang tắt trong cài đặt.", "🔇");
     return;
@@ -1497,13 +1533,14 @@ function speakChineseText(text, rate = 0.78, onend) {
     return;
   }
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
+  const expressiveText = String(text).replaceAll("。", "。 ").replaceAll("？", "？ ").replaceAll("！", "！ ");
+  const utterance = new SpeechSynthesisUtterance(expressiveText);
   utterance.lang = "zh-CN";
   utterance.rate = rate;
-  utterance.pitch = 1;
+  utterance.pitch = role === "male" ? 0.92 : role === "female" ? 1.04 : 1;
+  utterance.volume = 1;
   if (onend) utterance.onend = onend;
-  const voices = window.speechSynthesis.getVoices();
-  const chineseVoice = voices.find((voice) => /^zh(-|_)/i.test(voice.lang));
+  const chineseVoice = preferredChineseVoice(role);
   if (chineseVoice) utterance.voice = chineseVoice;
   window.speechSynthesis.speak(utterance);
 }
@@ -1518,9 +1555,10 @@ function playDialogue(startIndex = 0) {
   if (!lesson) return;
   const line = lesson.dialogue[startIndex];
   if (!line) return;
-  speakChineseText(line.hanzi, 0.76, () => {
-    if (startIndex + 1 < lesson.dialogue.length) setTimeout(() => playDialogue(startIndex + 1), 320);
-  });
+  const role = startIndex % 2 === 0 ? "female" : "male";
+  speakChineseText(line.hanzi, 0.74, () => {
+    if (startIndex + 1 < lesson.dialogue.length) setTimeout(() => playDialogue(startIndex + 1), 520);
+  }, { role });
 }
 
 function practiceSpeaking() {
@@ -1584,7 +1622,8 @@ function bindGlobalEvents() {
     if (action === "play-dialogue") playDialogue();
     if (action === "play-line") {
       const lesson = getCourseLesson(selectedCourseLessonId);
-      speakChineseText(lesson?.dialogue[Number(actionElement.dataset.line)]?.hanzi, 0.72);
+      const lineIndex = Number(actionElement.dataset.line);
+      speakChineseText(lesson?.dialogue[lineIndex]?.hanzi, 0.72, null, { role: lineIndex % 2 === 0 ? "female" : "male" });
     }
     if (action === "practice-speaking") practiceSpeaking();
     if (action === "start-course-flashcards") startFlashcards("lesson", selectedCourseLessonId);
