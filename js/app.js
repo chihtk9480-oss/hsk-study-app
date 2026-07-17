@@ -44,6 +44,7 @@ let activeWritingCharacter = 0;
 let writingStrokes = [];
 let installPrompt = null;
 let selectedLevel = 1;
+let selectedExamLevel = 1;
 let selectedCourseLessonId = 1;
 let activeLessonSkill = "listen";
 let hanziWriter = null;
@@ -718,9 +719,11 @@ function renderExams() {
   const history = state.examHistory.slice(0, 6);
   const best = history.length ? Math.max(...history.map((item) => item.percent)) : 0;
   const average = history.length ? Math.round(history.reduce((sum, item) => sum + item.percent, 0) / history.length) : 0;
+  const levelPool = VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === selectedExamLevel);
+  const examMinutes = Math.ceil(levelPool.length * 0.65);
   main.innerHTML = `
     <section class="exam-hero card">
-      <div><span class="exam-promo-kicker">HanziGo Test Center</span><h2>Luyện đúng nhịp thi, biết rõ điểm yếu</h2><p>Mỗi đề gồm 20 câu nghe và đọc, thời gian 15 phút. Kết quả được lưu để bạn theo dõi sự tiến bộ.</p></div>
+      <div><span class="exam-promo-kicker">HanziGo Test Center</span><h2>30 đề ôn trọn bộ từ vựng</h2><p>Mỗi cấp có 10 đề. Trong từng đề, mọi từ của cấp HSK đó đều xuất hiện ít nhất một lần dưới dạng nghe, nhận mặt chữ hoặc chọn nghĩa.</p></div>
       <div class="exam-hero-score"><strong>${best}%</strong><small>Điểm cao nhất</small></div>
     </section>
     <section class="exam-summary" aria-label="Tổng quan luyện thi">
@@ -728,26 +731,36 @@ function renderExams() {
       <article class="card"><span>◎</span><strong>${average}%</strong><small>Điểm trung bình</small></article>
       <article class="card"><span>🏆</span><strong>${best}%</strong><small>Kỷ lục cá nhân</small></article>
     </section>
-    <div class="section-header"><div><h2>Kho đề HSK</h2><p>Chọn cấp độ phù hợp với lộ trình hiện tại.</p></div></div>
-    <section class="exam-grid">
-      ${[1, 2, 3].map((level) => {
-        const attempts = state.examHistory.filter((item) => item.level === level);
-        const levelBest = attempts.length ? Math.max(...attempts.map((item) => item.percent)) : null;
-        return `<article class="card exam-card level-${level}"><div class="exam-card-top"><span class="exam-level">HSK <b>${level}</b></span><span class="exam-status">${levelBest === null ? "Chưa làm" : `Cao nhất ${levelBest}%`}</span></div><h3>Đề mô phỏng HSK ${level}</h3><p>20 câu · Nghe và đọc · 15 phút</p><div class="exam-tags"><span>🎧 Nghe hiểu</span><span>阅 Đọc hiểu</span></div><button class="primary-button" type="button" data-action="start-mock-exam" data-level="${level}">Bắt đầu làm đề</button></article>`;
+    <div class="section-header"><div><h2>Kho 30 đề HSK</h2><p>Chọn cấp độ rồi làm lần lượt 10 đề.</p></div></div>
+    <section class="exam-level-tabs" aria-label="Chọn cấp độ đề thi">${[1, 2, 3].map((level) => `<button type="button" data-action="select-exam-level" data-level="${level}" class="${selectedExamLevel === level ? "is-active" : ""}"><span>HSK ${level}</span><small>10 đề · ${VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === level).length} từ/đề</small></button>`).join("")}</section>
+    <section class="exam-grid ten-exams">
+      ${Array.from({ length: 10 }, (_, index) => {
+        const examNumber = index + 1;
+        const attempts = state.examHistory.filter((item) => item.level === selectedExamLevel && item.examNumber === examNumber);
+        const examBest = attempts.length ? Math.max(...attempts.map((item) => item.percent)) : null;
+        return `<article class="card exam-card level-${selectedExamLevel}"><div class="exam-card-top"><span class="exam-level">HSK <b>${selectedExamLevel}</b></span><span class="exam-status">${examBest === null ? "Chưa làm" : `Cao nhất ${examBest}%`}</span></div><h3>Đề tổng ôn số ${examNumber}</h3><p>${levelPool.length} câu · Toàn bộ ${levelPool.length} từ · ${examMinutes} phút</p><div class="exam-coverage"><span style="--coverage:100%"></span><small>Phủ 100% từ vựng HSK ${selectedExamLevel}</small></div><div class="exam-tags"><span>🎧 Nghe</span><span>字 Mặt chữ</span><span>译 Nghĩa</span></div><button class="primary-button" type="button" data-action="start-mock-exam" data-level="${selectedExamLevel}" data-exam="${examNumber}">Bắt đầu đề ${examNumber}</button></article>`;
       }).join("")}
     </section>
     <div class="section-header"><div><h2>Lịch sử gần đây</h2><p>Kết quả được lưu riêng trên thiết bị này.</p></div></div>
-    <section class="card exam-history">${history.length ? history.map((item) => `<div class="exam-history-row"><span class="history-level">HSK ${item.level}</span><span><strong>${item.score}/${item.total}</strong><small>${new Date(item.date).toLocaleDateString("vi-VN")}</small></span><b class="history-score ${item.percent >= 70 ? "is-pass" : ""}">${item.percent}%</b></div>`).join("") : `<div class="empty-history"><span>📊</span><p>Chưa có kết quả. Làm đề đầu tiên để mở biểu đồ tiến bộ nhé.</p></div>`}</section>
+    <section class="card exam-history">${history.length ? history.map((item) => `<div class="exam-history-row"><span class="history-level">HSK ${item.level}</span><span><strong>Đề ${item.examNumber || 1} · ${item.score}/${item.total}</strong><small>${new Date(item.date).toLocaleDateString("vi-VN")}</small></span><b class="history-score ${item.percent >= 70 ? "is-pass" : ""}">${item.percent}%</b></div>`).join("") : `<div class="empty-history"><span>📊</span><p>Chưa có kết quả. Làm đề đầu tiên để mở biểu đồ tiến bộ nhé.</p></div>`}</section>
   `;
 }
 
-function startMockExam(level) {
+function seededExamOrder(items, seed) {
+  let value = seed * 9301 + 49297;
+  return items.map((item) => {
+    value = (value * 233 + 97) % 233280;
+    return { item, order: value / 233280 };
+  }).sort((a, b) => a.order - b.order).map(({ item }) => item);
+}
+
+function startMockExam(level, examNumber = 1) {
   const pool = VOCABULARY.filter((word) => getCourseLesson(word.lesson)?.level === level);
-  const targets = shuffle(pool).slice(0, Math.min(20, pool.length));
+  const targets = seededExamOrder(pool, level * 100 + examNumber);
   const types = ["listening", "hanzi", "meaning"];
   quizSession = {
-    mode: "exam", level, startedAt: Date.now(), duration: 15 * 60 * 1000,
-    questions: targets.map((word, index) => buildQuestion(word, types[index % types.length], pool)),
+    mode: "exam", level, examNumber, startedAt: Date.now(), duration: Math.ceil(pool.length * 0.65) * 60 * 1000,
+    questions: targets.map((word, index) => buildQuestion(word, types[(index + examNumber - 1) % types.length], pool)),
     index: 0, score: 0, xp: 0, answered: null, celebrated: false, saved: false,
   };
   navigate("quiz", { updateHash: false });
@@ -932,15 +945,15 @@ function renderQuizComplete() {
   const isExam = quizSession.mode === "exam";
   if (isExam && !quizSession.saved) {
     quizSession.saved = true;
-    state.examHistory.unshift({ level: quizSession.level, score: quizSession.score, total, percent, date: new Date().toISOString() });
-    state.examHistory = state.examHistory.slice(0, 30);
+    state.examHistory.unshift({ level: quizSession.level, examNumber: quizSession.examNumber || 1, score: quizSession.score, total, percent, date: new Date().toISOString() });
+    state.examHistory = state.examHistory.slice(0, 60);
     saveState();
   }
 
   main.innerHTML = `
     <section class="card session-complete">
       <div class="complete-icon" aria-hidden="true">${percent >= 70 ? "🏆" : "🌱"}</div>
-      <p class="eyebrow">${isExam ? `Kết quả đề HSK ${quizSession.level}` : "Kết quả quiz"}</p>
+      <p class="eyebrow">${isExam ? `Kết quả HSK ${quizSession.level} · Đề ${quizSession.examNumber || 1}` : "Kết quả quiz"}</p>
       <h2>${quizSession.score}/${total} câu đúng</h2>
       <p>${message}</p>
       <div class="complete-stats">
@@ -950,7 +963,7 @@ function renderQuizComplete() {
       </div>
       <div class="complete-actions">
         <button class="secondary-button" type="button" data-page="${isExam ? "exams" : "review"}">${isExam ? "Xem lịch sử" : "Về ôn tập"}</button>
-        <button class="primary-button" type="button" data-action="${isExam ? "start-mock-exam" : "start-quiz"}" ${isExam ? `data-level="${quizSession.level}"` : ""}>${icon("refresh")} Thử lại</button>
+        <button class="primary-button" type="button" data-action="${isExam ? "start-mock-exam" : "start-quiz"}" ${isExam ? `data-level="${quizSession.level}" data-exam="${quizSession.examNumber || 1}"` : ""}>${icon("refresh")} Thử lại</button>
       </div>
     </section>
   `;
@@ -1332,7 +1345,11 @@ function bindGlobalEvents() {
     if (action === "practice-speaking") practiceSpeaking();
     if (action === "start-course-flashcards") startFlashcards("lesson", selectedCourseLessonId);
     if (action === "start-course-quiz") startQuiz(getLessonWords(selectedCourseLessonId));
-    if (action === "start-mock-exam") startMockExam(Number(actionElement.dataset.level) || 1);
+    if (action === "start-mock-exam") startMockExam(Number(actionElement.dataset.level) || 1, Number(actionElement.dataset.exam) || 1);
+    if (action === "select-exam-level") {
+      selectedExamLevel = Number(actionElement.dataset.level) || 1;
+      renderExams();
+    }
     if (action === "lesson-write") {
       const writingWord = getLessonWords(selectedCourseLessonId)[0];
       if (writingWord) selectedWritingId = writingWord.id;
