@@ -56,3 +56,13 @@ test("từ làm sai có thể ôn và mở thẳng phòng luyện viết", () =>
   assert.ok(app.includes("open-writing-word"), "Thiếu nút luyện viết trực tiếp");
   assert.ok(app.includes("return-from-writing"), "Thiếu nút quay lại phiên ôn");
 });
+
+test("phòng luyện viết có bàn phím Pinyin và tra nét chữ tự do", () => {
+  const html = readFileSync(resolve(root, "index.html"), "utf8");
+  const app = readFileSync(resolve(root, "js/app.js"), "utf8");
+  assert.ok(html.includes('"pinyin-ime"') && html.includes("google_pinyin_dict"), "Thiếu bộ gõ Pinyin");
+  assert.ok(app.includes("pinyin-ime-editor"), "Thiếu ô nhập Pinyin");
+  assert.ok(app.includes("apply-pinyin-lookup"), "Thiếu thao tác tra chữ Hán");
+  assert.ok(app.includes("select-lookup-character"), "Từ nhiều chữ chưa thể chọn từng chữ để luyện");
+  assert.ok(app.includes("extractHanzi"), "Thiếu xử lý chữ Hán nhập tự do");
+});

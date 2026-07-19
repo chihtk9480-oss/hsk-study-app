@@ -99,6 +99,11 @@ let selectedWritingId = WRITING_WORDS[0]?.id;
 let selectedWritingLesson = 1;
 let activeWritingCharacter = 0;
 let writingReturnPage = null;
+let writingMode = "course";
+let lookupImeValue = "";
+let lookupDirectValue = "";
+let lookupHanzi = "学";
+let lookupCharacterIndex = 0;
 let writingStrokes = [];
 let installPrompt = null;
 let selectedLevel = 1;
@@ -1338,6 +1343,7 @@ function openWritingWord(wordId) {
   const word = getWord(wordId);
   if (!word) return;
   if (currentPage !== "write") writingReturnPage = currentPage;
+  writingMode = "course";
   selectedWritingId = word.id;
   selectedWritingLesson = Number(word.lesson) || 1;
   activeWritingCharacter = 0;
@@ -1345,7 +1351,20 @@ function openWritingWord(wordId) {
   navigate("write");
 }
 
+function writingModeTabs() {
+  return `
+    <section class="writing-mode-tabs" aria-label="Chọn kiểu luyện viết">
+      <button type="button" data-action="select-writing-mode" data-mode="course" class="${writingMode === "course" ? "is-active" : ""}"><span>📚</span><strong>Theo giáo trình</strong><small>Chọn từ trong 45 bài HSK</small></button>
+      <button type="button" data-action="select-writing-mode" data-mode="lookup" class="${writingMode === "lookup" ? "is-active" : ""}"><span>⌨</span><strong>Tra bằng Pinyin</strong><small>Gõ từ bất kỳ rồi luyện nét</small></button>
+    </section>
+  `;
+}
+
 function renderWrite() {
+  if (writingMode === "lookup") {
+    renderWritingLookup();
+    return;
+  }
   const selected = getWord(selectedWritingId) || WRITING_WORDS[0];
   selectedWritingId = selected.id;
   selectedWritingLesson = Number(selected.lesson) || selectedWritingLesson;
@@ -1358,6 +1377,7 @@ function renderWrite() {
       <div><h2>Luyện viết theo từng bài</h2><p>Chọn bài, chọn từ rồi luyện từng chữ theo đúng thứ tự nét.</p></div>
       ${writingReturnPage ? `<button class="secondary-button" type="button" data-action="return-from-writing">← Quay lại ${writingReturnPage === "flashcards" ? "flashcard" : writingReturnPage === "quiz" ? "câu hỏi" : writingReturnPage === "review" ? "sổ từ sai" : "trang trước"}</button>` : ""}
     </div>
+    ${writingModeTabs()}
     <section class="writing-course-picker card">
       <label><span>Cấp độ và bài học</span><select class="select-input" id="writing-lesson-select">${LESSONS.map((lesson) => `<option value="${lesson.id}" ${lesson.id === selectedWritingLesson ? "selected" : ""}>HSK ${lesson.level} · Bài ${lesson.unit}: ${escapeHtml(lesson.title)}</option>`).join("")}</select></label>
       <label><span>Từ cần luyện</span><select class="select-input character-pick" id="writing-word-select">${lessonWords.map((word) => `<option value="${word.id}" ${word.id === selected.id ? "selected" : ""}>${word.hanzi} · ${escapeHtml(word.pinyin)}</option>`).join("")}</select></label>
@@ -1406,31 +1426,155 @@ function renderWrite() {
   });
 }
 
+function renderWritingLookup() {
+  const characters = Array.from(lookupHanzi || "学");
+  lookupCharacterIndex = Math.min(lookupCharacterIndex, Math.max(0, characters.length - 1));
+  const character = characters[lookupCharacterIndex] || "学";
+  const vocabularyMatch = VOCABULARY.find((word) => word.hanzi === lookupHanzi);
+  main.innerHTML = `
+    <div class="section-header">
+      <div><h2>Tra nét chữ bằng Pinyin</h2><p>Gõ âm Pinyin, chọn chữ Hán rồi xem và luyện đúng thứ tự nét.</p></div>
+      ${writingReturnPage ? `<button class="secondary-button" type="button" data-action="return-from-writing">← Quay lại ${writingReturnPage === "flashcards" ? "flashcard" : writingReturnPage === "quiz" ? "câu hỏi" : writingReturnPage === "review" ? "sổ từ sai" : "trang trước"}</button>` : ""}
+    </div>
+    ${writingModeTabs()}
+    <section class="pinyin-lookup-card card">
+      <div class="pinyin-lookup-main">
+        <div class="pinyin-lookup-heading"><span class="pinyin-keyboard-icon">拼</span><div><span class="skill-kicker">Bàn phím Pinyin tích hợp</span><h3>Gõ Pinyin → chọn chữ Hán</h3><p>Ví dụ: gõ <b>xue</b>, bấm <b>Space</b> hoặc số <b>1–9</b> để chọn <b>学</b>.</p></div></div>
+        <label class="pinyin-ime-label" for="pinyin-ime-editor">Từ muốn tra bằng Pinyin</label>
+        <pinyin-ime-editor id="pinyin-ime-editor" value="${escapeHtml(lookupImeValue)}" editor-type="input" page-size="9" popup-position="bottom" placeholder="Gõ xue, pengyou, xihuan…" autocomplete="off"></pinyin-ime-editor>
+        <div class="pinyin-ime-shortcuts"><span><kbd>Space</kbd> chọn từ đầu</span><span><kbd>1–9</kbd> chọn ứng viên</span><span><kbd>Shift</kbd> đổi Trung/Anh</span></div>
+        <div class="lookup-divider"><span>hoặc</span></div>
+        <label class="pinyin-ime-label" for="direct-hanzi-input">Dán chữ Hán từ Duolingo hay nguồn khác</label>
+        <div class="lookup-direct-row">
+          <input id="direct-hanzi-input" class="text-input" type="text" value="${escapeHtml(lookupDirectValue)}" maxlength="20" inputmode="text" autocomplete="off" placeholder="Ví dụ: 朋友" />
+          <button class="primary-button" type="button" data-action="apply-pinyin-lookup">Xem thứ tự nét →</button>
+          <button class="secondary-button lookup-clear-button" type="button" data-action="clear-pinyin-lookup" aria-label="Xóa nội dung tra">Xóa</button>
+        </div>
+        <p class="lookup-network-note">Lần đầu mở bàn phím và một chữ mới có thể cần vài giây để tải dữ liệu. Sau đó trình duyệt sẽ lưu đệm để dùng nhanh hơn.</p>
+      </div>
+      <aside class="lookup-use-case">
+        <span>🦉</span>
+        <h3>Gặp từ lạ khi học?</h3>
+        <p>Không cần tìm xem từ thuộc Unit nào. Nhập ngay tại đây, chọn từng chữ và luyện viết lúc bạn muốn.</p>
+        <ol><li>Gõ Pinyin hoặc dán chữ</li><li>Chọn chữ cần xem</li><li>Xem nét rồi tự viết</li></ol>
+      </aside>
+    </section>
+    <section class="lookup-result-picker card">
+      <div><span class="skill-kicker">Từ đang tra</span><strong>${lookupHanzi}</strong>${vocabularyMatch ? `<small>${state.showPinyin ? escapeHtml(vocabularyMatch.pinyin) : "Pinyin đang ẩn"} · ${escapeHtml(vocabularyMatch.meaning)}</small>` : `<small>Tra tự do · ${characters.length} chữ</small>`}</div>
+      <div class="writing-character-tabs" aria-label="Chọn chữ cần luyện">${characters.map((item, index) => `<button type="button" class="${index === lookupCharacterIndex ? "is-active" : ""}" data-action="select-lookup-character" data-index="${index}" aria-label="Luyện chữ ${item}">${item}</button>`).join("")}</div>
+      <button class="secondary-button" type="button" data-action="speak-lookup">${icon("volume")} Nghe cả từ</button>
+    </section>
+    <section class="stroke-order-stage card">
+      <div class="stroke-order-copy"><span class="skill-kicker">✦ Thứ tự nét động · ${lookupHanzi}</span><h2>Xem từng nét của chữ <b>${character}</b></h2><p>Đang luyện chữ ${lookupCharacterIndex + 1}/${characters.length} trong “${lookupHanzi}”. Chạm từng chữ phía trên để đổi chữ cần luyện.</p><div class="stroke-controls"><button class="primary-button" type="button" data-action="animate-strokes">▶ Phát thứ tự nét</button><button class="secondary-button" type="button" data-action="stroke-quiz">✍ Viết theo nét</button></div></div>
+      <div class="stroke-demo-shell"><div id="stroke-demo" aria-label="Minh họa thứ tự nét chữ ${character}"></div><span class="stroke-status" id="stroke-status">Bấm Phát để xem</span></div>
+    </section>
+    <section class="writing-layout">
+      <article class="card writing-card">
+        <div class="character-selector">
+          <div class="character-info"><h2>${character} · chữ ${lookupCharacterIndex + 1}/${characters.length}</h2><p>${vocabularyMatch ? escapeHtml(vocabularyMatch.meaning) : `Tự luyện từ “${lookupHanzi}”`}</p></div>
+          <span class="writing-lesson-badge">Tra tự do</span>
+        </div>
+        <div class="writing-grid">
+          <span class="guide-character" aria-hidden="true">${character}</span>
+          <canvas id="writing-canvas" aria-label="Vùng luyện viết chữ ${character}"></canvas>
+        </div>
+        <div class="writing-actions">
+          <button class="secondary-button" type="button" data-action="undo-stroke">${icon("undo")} Hoàn tác</button>
+          <button class="secondary-button" type="button" data-action="clear-writing">${icon("trash")} Viết lại</button>
+          <button class="primary-button" type="button" data-action="complete-writing">${icon("check")} Đã viết xong</button>
+        </div>
+      </article>
+      <aside class="card writing-tip-card lookup-writing-tip">
+        <p class="eyebrow">Tra và nhớ ngay</p>
+        <h2>Mỗi chữ là một lượt luyện riêng</h2>
+        <p>Với từ nhiều chữ như “${lookupHanzi}”, chọn từng ô chữ phía trên. App sẽ đổi cả hoạt ảnh thứ tự nét và chữ mờ trong ô luyện.</p>
+        <div class="tip-list">
+          <div class="tip-item"><span class="tip-number">1</span><span><strong>Xem nét động</strong><small>Bấm Phát thứ tự nét và quan sát hướng bút.</small></span></div>
+          <div class="tip-item"><span class="tip-number">2</span><span><strong>Viết theo nét</strong><small>Chế độ tương tác sẽ nhắc khi bạn đi sai thứ tự.</small></span></div>
+          <div class="tip-item"><span class="tip-number">3</span><span><strong>Tự viết lại</strong><small>Dùng ô mễ tự lớn để ghi nhớ mặt chữ.</small></span></div>
+        </div>
+        <button class="secondary-button" type="button" data-action="speak-lookup">${icon("volume")} Nghe “${lookupHanzi}”</button>
+        <div class="writing-stats">
+          <div class="writing-stat"><strong>${state.stats.writes}</strong><small>Lượt đã luyện</small></div>
+          <div class="writing-stat"><strong>∞</strong><small>Chữ có thể tra</small></div>
+        </div>
+      </aside>
+    </section>
+  `;
+  requestAnimationFrame(() => {
+    const ime = document.querySelector("#pinyin-ime-editor");
+    if (ime && ime.value !== lookupImeValue) ime.value = lookupImeValue;
+    setupWritingCanvas();
+    setupStrokeAnimator();
+  });
+}
+
+function currentWritingCharacter() {
+  if (writingMode === "lookup") {
+    const characters = Array.from(lookupHanzi || "学");
+    return characters[lookupCharacterIndex] || characters[0] || "学";
+  }
+  const selected = getWord(selectedWritingId) || WRITING_WORDS[0];
+  const characters = Array.from(selected?.hanzi || "学");
+  return characters[activeWritingCharacter] || characters[0] || "学";
+}
+
+function extractHanzi(value) {
+  return Array.from(String(value || ""))
+    .filter((character) => /\p{Script=Han}/u.test(character))
+    .slice(0, 12)
+    .join("");
+}
+
+function applyPinyinLookup() {
+  const ime = document.querySelector("#pinyin-ime-editor");
+  const directInput = document.querySelector("#direct-hanzi-input");
+  lookupImeValue = String(ime?.value || lookupImeValue || "");
+  lookupDirectValue = String(directInput?.value || "").trim();
+  const hanzi = extractHanzi(lookupDirectValue) || extractHanzi(lookupImeValue);
+  if (!hanzi) {
+    showToast("Hãy gõ Pinyin rồi bấm Space/chọn một chữ Hán, hoặc dán chữ trực tiếp nhé.", "拼");
+    ime?.focus?.();
+    return;
+  }
+  lookupHanzi = hanzi;
+  lookupCharacterIndex = 0;
+  writingStrokes = [];
+  renderWrite();
+}
+
 function setupStrokeAnimator() {
   const target = document.querySelector("#stroke-demo");
-  const selected = getWord(selectedWritingId) || WRITING_WORDS[0];
-  const character = Array.from(selected?.hanzi || "学")[activeWritingCharacter] || Array.from(selected?.hanzi || "学")[0];
+  const character = currentWritingCharacter();
   hanziWriter = null;
   if (!target || !window.HanziWriter) {
     if (target) target.innerHTML = `<span class="stroke-fallback">${character}</span><small>Cần internet để tải dữ liệu thứ tự nét lần đầu.</small>`;
     return;
   }
   const size = Math.min(270, Math.max(210, target.clientWidth || 250));
-  hanziWriter = window.HanziWriter.create("stroke-demo", character, {
-    width: size,
-    height: size,
-    padding: 16,
-    showOutline: true,
-    showCharacter: false,
-    strokeAnimationSpeed: 1.25,
-    delayBetweenStrokes: 520,
-    strokeColor: "#d52d42",
-    radicalColor: "#17243f",
-    outlineColor: "#d7d9df",
-    drawingColor: "#d52d42",
-    drawingWidth: 18,
-    highlightColor: "#ffb3bd",
-  });
+  try {
+    hanziWriter = window.HanziWriter.create("stroke-demo", character, {
+      width: size,
+      height: size,
+      padding: 16,
+      showOutline: true,
+      showCharacter: false,
+      strokeAnimationSpeed: 1.25,
+      delayBetweenStrokes: 520,
+      strokeColor: "#d52d42",
+      radicalColor: "#17243f",
+      outlineColor: "#d7d9df",
+      drawingColor: "#d52d42",
+      drawingWidth: 18,
+      highlightColor: "#ffb3bd",
+      onLoadCharDataError: () => {
+        target.innerHTML = `<span class="stroke-fallback">${character}</span><small>Chưa tìm thấy dữ liệu nét cho chữ này.</small>`;
+        hanziWriter = null;
+      },
+    });
+  } catch {
+    target.innerHTML = `<span class="stroke-fallback">${character}</span><small>Chưa tìm thấy dữ liệu nét cho chữ này.</small>`;
+  }
 }
 
 function animateStrokeOrder() {
@@ -1454,7 +1598,7 @@ function startStrokeQuiz() {
     onCorrectStroke: (data) => { status.textContent = `Đúng nét ${data.strokeNum + 1}/${data.strokesRemaining + data.strokeNum + 1} ✓`; },
     onComplete: () => {
       status.textContent = "Viết đúng toàn bộ thứ tự nét! +10 XP 🎉";
-      recordStudy({ wordId: selectedWritingId, xp: 10, type: "write" });
+      recordStudy({ wordId: writingMode === "lookup" ? undefined : selectedWritingId, xp: 10, type: "write" });
       launchConfetti(18);
     },
   });
@@ -1539,9 +1683,11 @@ function completeWriting() {
   }
   state.stats.writes += 1;
   const selected = getWord(selectedWritingId);
-  recordStudy({ wordId: selected?.id, xp: 5, type: "write" });
+  const wordId = writingMode === "lookup" ? undefined : selected?.id;
+  const label = writingMode === "lookup" ? lookupHanzi : selected?.hanzi || "Hán";
+  recordStudy({ wordId, xp: 5, type: "write" });
   launchConfetti(18);
-  showToast(`Đã lưu một lượt luyện chữ ${selected?.hanzi || "Hán"}. +5 XP`, "✓");
+  showToast(`Đã lưu một lượt luyện chữ ${label}. +5 XP`, "✓");
   writingStrokes = [];
   renderWrite();
 }
@@ -1710,6 +1856,7 @@ function bindGlobalEvents() {
     if (action === "lesson-write") {
       const writingWord = getLessonWords(selectedCourseLessonId)[0];
       if (writingWord) selectedWritingId = writingWord.id;
+      writingMode = "course";
       selectedWritingLesson = selectedCourseLessonId;
       activeWritingCharacter = 0;
       writingReturnPage = "lesson";
@@ -1750,6 +1897,25 @@ function bindGlobalEvents() {
     if (action === "complete-writing") completeWriting();
     if (action === "animate-strokes") animateStrokeOrder();
     if (action === "stroke-quiz") startStrokeQuiz();
+    if (action === "select-writing-mode") {
+      writingMode = actionElement.dataset.mode === "lookup" ? "lookup" : "course";
+      writingStrokes = [];
+      renderWrite();
+    }
+    if (action === "apply-pinyin-lookup") applyPinyinLookup();
+    if (action === "clear-pinyin-lookup") {
+      lookupImeValue = "";
+      lookupDirectValue = "";
+      writingStrokes = [];
+      renderWrite();
+      requestAnimationFrame(() => document.querySelector("#pinyin-ime-editor")?.focus?.());
+    }
+    if (action === "select-lookup-character") {
+      lookupCharacterIndex = Number(actionElement.dataset.index) || 0;
+      writingStrokes = [];
+      renderWrite();
+    }
+    if (action === "speak-lookup") speakChineseText(lookupHanzi, 0.76);
     if (action === "writing-character") {
       activeWritingCharacter = Number(actionElement.dataset.index) || 0;
       writingStrokes = [];
@@ -1770,9 +1936,13 @@ function bindGlobalEvents() {
       wordSearch = event.target.value;
       updateWordResults();
     }
+    if (event.target.id === "direct-hanzi-input") lookupDirectValue = event.target.value;
   });
 
   document.addEventListener("change", (event) => {
+    if (event.target.id === "pinyin-ime-editor") {
+      lookupImeValue = String(event.detail?.value ?? event.target.value ?? "");
+    }
     if (event.target.id === "word-lesson-filter") {
       wordLessonFilter = event.target.value;
       updateWordResults();

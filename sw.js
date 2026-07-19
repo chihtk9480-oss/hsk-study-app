@@ -1,4 +1,4 @@
-const CACHE_NAME = "hanzigo-v3.2.0";
+const CACHE_NAME = "hanzigo-v3.3.0";
 const APP_ASSETS = [
   "./",
   "./index.html",

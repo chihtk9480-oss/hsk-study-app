@@ -188,6 +188,15 @@
       <div class="noscript-message">HanziGo cần JavaScript để chạy. Hãy bật JavaScript rồi tải lại trang.</div>
     </noscript>
     <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.7/dist/hanzi-writer.min.js" defer></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "pinyin-ime": "https://cdn.jsdelivr.net/npm/pinyin-ime@1.0.2/dist/index.js",
+          "pinyin-ime/dictionary/google_pinyin_dict": "https://cdn.jsdelivr.net/npm/pinyin-ime@1.0.2/dist/dictionary/google_pinyin_dict.js"
+        }
+      }
+    </script>
+    <script type="module">import("pinyin-ime").catch(() => {});</script>
     <script type="module" src="./js/app.js"></script>
   </body>
 </html>
