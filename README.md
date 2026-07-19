@@ -11,6 +11,8 @@ HanziGo là ứng dụng web học HSK 1–3 bằng tiếng Việt, thiết kế
 - Sổ từ sai tự động sau quiz/đề thi, flashcard ôn riêng và nút luyện viết trực tiếp từ flashcard, đáp án hoặc kho từ.
 - Phòng luyện viết theo đủ 45 bài; từ nhiều chữ được tách để luyện lần lượt từng chữ, có thứ tự nét động.
 - Chế độ tra nét tự do bằng bàn phím Pinyin: gõ Pinyin để chọn chữ Hán hoặc dán trực tiếp từ Duolingo, rồi xem thứ tự nét và luyện từng chữ mà không cần biết từ nằm ở bài nào.
+- Phòng nghe chép chính tả theo HSK 1–3: luyện từ hoặc câu hội thoại, nhập bằng bàn phím Pinyin, đối chiếu đúng–sai từng chữ và đưa từ sai vào luồng ôn tập/luyện viết.
+- Speaking Challenge 8 lượt: nghe mẫu, nói qua micro, so sánh câu Chrome nhận diện với câu đích, tô chữ chưa khớp và gợi ý cụm cần nói lại.
 - Trung tâm luyện thi gồm 60 đề: 30 đề tổng ôn phủ 100% từ vựng và 30 đề thi thử tự biên soạn bám cấu trúc HSK 1–3 chính thức.
 - Thi thử HSK 1: 40 câu Nghe–Đọc; HSK 2: 60 câu Nghe–Đọc; HSK 3: 80 câu Nghe–Đọc–Viết; có đồng hồ và chấm từng kỹ năng trên thang 100.
 - Flashcard lật thẻ, phát âm tiếng Hoa bằng giọng có sẵn trên thiết bị.
@@ -22,6 +24,7 @@ HanziGo là ứng dụng web học HSK 1–3 bằng tiếng Việt, thiết kế
 - Lưu tiến độ bằng `localStorage`; học offline bằng service worker.
 - Không cần đăng nhập và không thu thập dữ liệu học tập; tiến độ được lưu ngay trên thiết bị.
 - Âm thanh sử dụng giọng đọc có sẵn trên thiết bị. Từ điển bàn phím Pinyin và dữ liệu nét chữ được tải khi dùng lần đầu rồi được trình duyệt lưu đệm.
+- Chấm speaking cần Chrome/Edge có hỗ trợ nhận diện giọng nói, kết nối mạng và quyền sử dụng micro. Điểm là độ khớp văn bản nhận diện, không phải đánh giá âm vị hay khẩu hình chuyên sâu.
 
 ## Nội dung
 

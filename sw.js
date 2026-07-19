@@ -1,4 +1,4 @@
-const CACHE_NAME = "hanzigo-v3.3.0";
+const CACHE_NAME = "hanzigo-v3.4.0";
 const APP_ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const APP_ASSETS = [
   "./js/app.js",
   "./js/data.js",
   "./js/curriculum.js",
+  "./js/practice.js",
   "./manifest.webmanifest",
   "./assets/mascot.svg",
   "./assets/icons/icon.svg",

@@ -12,6 +12,7 @@ test("các tệp quan trọng để chạy và cài PWA đều tồn tại", () 
     "js/app.js",
     "js/data.js",
     "js/curriculum.js",
+    "js/practice.js",
     "manifest.webmanifest",
     "sw.js",
     "assets/mascot.svg",
@@ -65,4 +66,14 @@ test("phòng luyện viết có bàn phím Pinyin và tra nét chữ tự do", (
   assert.ok(app.includes("apply-pinyin-lookup"), "Thiếu thao tác tra chữ Hán");
   assert.ok(app.includes("select-lookup-character"), "Từ nhiều chữ chưa thể chọn từng chữ để luyện");
   assert.ok(app.includes("extractHanzi"), "Thiếu xử lý chữ Hán nhập tự do");
+});
+
+test("điều hướng có phòng nghe chính tả và Speaking Challenge", () => {
+  const html = readFileSync(resolve(root, "index.html"), "utf8");
+  const app = readFileSync(resolve(root, "js/app.js"), "utf8");
+  assert.ok(html.includes('data-page="practice"'), "Thiếu mục Nghe & nói trên điều hướng");
+  assert.ok(app.includes("startDictationSession") && app.includes("submitDictation"), "Thiếu luồng nghe chép chính tả");
+  assert.ok(app.includes("startSpeakingRecognition") && app.includes('recognition.lang = "zh-CN"'), "Thiếu chấm giọng nói tiếng Trung");
+  assert.ok(app.includes("renderAlignmentRows"), "Thiếu phản hồi đúng sai từng chữ");
+  assert.ok(app.includes("speaking-disclaimer"), "Thiếu lưu ý giới hạn của điểm speaking");
 });

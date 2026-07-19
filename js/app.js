@@ -6,6 +6,7 @@ import {
   getWord,
   getCourseLesson,
 } from "./data.js";
+import { alignChinese, normalizeChinese, similarityScore } from "./practice.js";
 
 const STORAGE_KEY = "hanzigo-state-v1";
 const DAY_MS = 86_400_000;
@@ -76,6 +77,7 @@ const PAGE_META = {
   exams: ["Trung tâm luyện thi", "Đề mô phỏng · bấm giờ · lưu kết quả"],
   words: ["Từ vựng", "Tra cứu nhanh bộ từ đang học"],
   write: ["Luyện viết", "Viết chữ Hán trên ô mễ tự"],
+  practice: ["Luyện nghe & nói", "Chép chính tả · speaking sửa phát âm"],
   flashcards: ["Thẻ ghi nhớ", "Lật thẻ · nghe · tự đánh giá"],
   quiz: ["Thử thách nhanh", "10 câu · nghĩa · chữ · nghe"],
 };
@@ -111,6 +113,12 @@ let selectedExamLevel = 1;
 let selectedExamCategory = "standard";
 let selectedCourseLessonId = 1;
 let activeLessonSkill = "listen";
+let practiceMode = "dictation";
+let practiceLevel = 1;
+let practiceContent = "words";
+let dictationSession = null;
+let speakingSession = null;
+let activeRecognition = null;
 let hanziWriter = null;
 let examTimer = null;
 let chineseVoices = [];
@@ -135,6 +143,10 @@ const defaultState = () => ({
     writes: 0,
     correct: 0,
     wrong: 0,
+    dictationAttempts: 0,
+    dictationCorrect: 0,
+    speakingAttempts: 0,
+    speakingBest: 0,
   },
   daily: {
     date: todayKey(),
@@ -326,7 +338,7 @@ function applyTheme() {
 
 function routeFromHash() {
   const route = window.location.hash.replace("#", "");
-  return ["home", "learn", "review", "exams", "words", "write"].includes(route)
+  return ["home", "learn", "review", "exams", "words", "write", "practice"].includes(route)
     ? route
     : "home";
 }
@@ -336,8 +348,12 @@ function navigate(page, { updateHash = true } = {}) {
     clearInterval(examTimer);
     examTimer = null;
   }
+  if (page !== "practice" && activeRecognition) {
+    activeRecognition.abort?.();
+    activeRecognition = null;
+  }
   currentPage = PAGE_META[page] ? page : "home";
-  if (updateHash && ["home", "learn", "review", "exams", "words", "write"].includes(page)) {
+  if (updateHash && ["home", "learn", "review", "exams", "words", "write", "practice"].includes(page)) {
     history.pushState(null, "", `#${page}`);
   }
   render();
@@ -378,6 +394,9 @@ function render() {
       break;
     case "write":
       renderWrite();
+      break;
+    case "practice":
+      renderPractice();
       break;
     case "flashcards":
       renderFlashcards();
@@ -462,6 +481,11 @@ function renderHome() {
       <article class="card stat-card"><span class="stat-icon gold" aria-hidden="true">◎</span><span class="stat-copy"><strong>${accuracy}%</strong><small>Độ chính xác quiz</small></span></article>
     </section>
 
+    <section class="home-practice-grid">
+      <article class="card home-practice-card dictation"><span>🎧</span><div><small>Nghe chủ động</small><h3>Chép chính tả từng chữ</h3><p>Nghe từ hoặc câu HSK rồi gõ lại bằng Pinyin.</p></div><button class="secondary-button" type="button" data-action="open-practice" data-mode="dictation">Luyện nghe →</button></article>
+      <article class="card home-practice-card speaking"><span>🎙</span><div><small>Speaking game</small><h3>Nói để máy chấm</h3><p>Xem Chrome nghe bạn thành chữ gì và sửa phần chưa rõ.</p></div><button class="secondary-button" type="button" data-action="open-practice" data-mode="speaking">Luyện nói →</button></article>
+    </section>
+
     <section class="exam-promo card">
       <div><span class="exam-promo-kicker">模拟考试 · Đề mô phỏng</span><h2>Sẵn sàng kiểm tra trình độ?</h2><p>Làm đề HSK theo cấp độ, có đồng hồ và bảng kết quả lưu ngay trên thiết bị.</p></div>
       <button class="primary-button" type="button" data-page="exams">Vào trung tâm luyện thi →</button>
@@ -478,6 +502,382 @@ function renderHome() {
       ${LESSONS.slice(0, 4).map(renderLessonCard).join("")}
     </section>
   `;
+}
+
+function practiceTargets(level = practiceLevel, content = practiceContent) {
+  if (content === "sentences") {
+    return LESSONS
+      .filter((lesson) => lesson.level === Number(level))
+      .flatMap((lesson) => lesson.dialogue.map((line, lineIndex) => ({
+        id: `lesson-${lesson.id}-line-${lineIndex}`,
+        type: "sentence",
+        text: line.hanzi,
+        pinyin: line.pinyin,
+        meaning: line.meaning,
+        lessonId: lesson.id,
+        role: lineIndex % 2 === 0 ? "female" : "male",
+      })));
+  }
+  return VOCABULARY
+    .filter((word) => getCourseLesson(word.lesson)?.level === Number(level))
+    .map((word) => ({
+      id: word.id,
+      wordId: word.id,
+      type: "word",
+      text: word.hanzi,
+      pinyin: word.pinyin,
+      meaning: word.meaning,
+      lessonId: word.lesson,
+      role: "narrator",
+    }));
+}
+
+function renderPractice() {
+  const dictationAccuracy = state.stats.dictationAttempts
+    ? Math.round((state.stats.dictationCorrect / state.stats.dictationAttempts) * 100)
+    : 0;
+  main.innerHTML = `
+    <section class="practice-page-head">
+      <div><span class="skill-kicker">听 · 说 · Nghe và nói chủ động</span><h2>Phòng luyện phản xạ tiếng Trung</h2><p>Chép lại điều nghe được hoặc nói theo mẫu để biết máy đang nghe bạn thành chữ gì.</p></div>
+      <div class="practice-mini-stats"><span><strong>${dictationAccuracy}%</strong><small>Chính tả</small></span><span><strong>${state.stats.speakingBest || 0}</strong><small>Speaking tốt nhất</small></span></div>
+    </section>
+    <section class="practice-mode-tabs" aria-label="Chọn kỹ năng luyện">
+      <button type="button" class="${practiceMode === "dictation" ? "is-active" : ""}" data-action="select-practice-mode" data-mode="dictation"><span>🎧</span><strong>Nghe chép chính tả</strong><small>Nghe → gõ lại → sửa từng chữ</small></button>
+      <button type="button" class="${practiceMode === "speaking" ? "is-active" : ""}" data-action="select-practice-mode" data-mode="speaking"><span>🎙</span><strong>Speaking Challenge</strong><small>Nghe mẫu → nói → xem lỗi nhận diện</small></button>
+    </section>
+    ${practiceMode === "dictation" ? renderDictationPractice() : renderSpeakingPractice()}
+  `;
+  requestAnimationFrame(() => {
+    const answerEditor = document.querySelector("#dictation-answer-ime");
+    if (answerEditor && dictationSession && answerEditor.value !== dictationSession.answer) answerEditor.value = dictationSession.answer || "";
+  });
+}
+
+function renderPracticeSetup(kind) {
+  const isDictation = kind === "dictation";
+  const title = isDictation ? "Bắt đầu một vòng nghe chép" : "Bắt đầu Speaking Challenge";
+  const description = isDictation
+    ? "Mỗi vòng 10 câu. Đáp án chỉ hiện sau khi bạn nộp."
+    : "Mỗi vòng 8 câu. Chrome sẽ dùng micro để nhận diện tiếng Trung bạn nói.";
+  return `
+    <section class="practice-setup card ${isDictation ? "is-dictation" : "is-speaking"}">
+      <div class="practice-setup-copy"><span class="practice-setup-icon">${isDictation ? "听" : "说"}</span><div><span class="skill-kicker">${isDictation ? "Dictation Lab" : "Pronunciation Game"}</span><h2>${title}</h2><p>${description}</p></div></div>
+      <div class="practice-choice-block"><strong>1. Chọn cấp độ</strong><div class="practice-level-buttons">${[1, 2, 3].map((level) => `<button type="button" data-action="select-practice-level" data-level="${level}" class="${practiceLevel === level ? "is-active" : ""}">HSK ${level}<small>${practiceTargets(level, practiceContent).length} mục</small></button>`).join("")}</div></div>
+      <div class="practice-choice-block"><strong>2. Chọn nội dung</strong><div class="practice-content-buttons"><button type="button" data-action="select-practice-content" data-content="words" class="${practiceContent === "words" ? "is-active" : ""}"><span>字</span><b>Từ vựng</b><small>Ngắn, tập trung mặt chữ</small></button><button type="button" data-action="select-practice-content" data-content="sentences" class="${practiceContent === "sentences" ? "is-active" : ""}"><span>句</span><b>Câu hội thoại</b><small>Nghe và nói theo ngữ cảnh</small></button></div></div>
+      <button class="primary-button practice-start-button" type="button" data-action="${isDictation ? "start-dictation" : "start-speaking-game"}">${isDictation ? "🎧 Bắt đầu 10 câu" : "🎙 Bắt đầu 8 lượt"}</button>
+      ${isDictation ? "" : `<p class="speech-privacy-note">🔒 Âm thanh được trình duyệt gửi tới dịch vụ nhận diện giọng nói của thiết bị/trình duyệt; HanziGo không tự lưu bản ghi âm.</p>`}
+    </section>
+  `;
+}
+
+function renderDictationPractice() {
+  if (!dictationSession) return renderPracticeSetup("dictation");
+  if (dictationSession.finished) return renderDictationComplete();
+  const target = dictationSession.targets[dictationSession.index];
+  const feedback = dictationSession.feedback;
+  const progress = Math.round(((dictationSession.index + (feedback ? 1 : 0)) / dictationSession.targets.length) * 100);
+  return `
+    <section class="practice-session card">
+      <div class="practice-session-top"><button class="text-button" type="button" data-action="exit-dictation">← Chọn lại</button><div class="practice-progress"><span style="--progress:${progress}%"></span></div><strong>${dictationSession.index + 1}/${dictationSession.targets.length}</strong></div>
+      <div class="dictation-stage">
+        <span class="practice-round-label">HSK ${dictationSession.level} · ${dictationSession.content === "words" ? "Từ vựng" : "Câu hội thoại"}</span>
+        <div class="listening-orb" aria-hidden="true"><span>听</span><i></i><i></i><i></i></div>
+        <h2>${feedback ? "Đối chiếu đáp án" : "Bạn nghe được gì?"}</h2>
+        <p>${feedback ? "Màu đỏ là chữ bị thiếu hoặc chưa đúng." : "Nghe bao nhiêu lần tùy ý rồi gõ lại bằng bàn phím Pinyin."}</p>
+        <div class="dictation-audio-actions"><button class="primary-button" type="button" data-action="play-dictation">${icon("volume")} Nghe bình thường</button><button class="secondary-button" type="button" data-action="play-dictation-slow">🐢 Nghe chậm</button>${feedback ? "" : `<button class="ghost-button" type="button" data-action="toggle-dictation-hint">💡 Gợi ý</button>`}</div>
+        ${dictationSession.hint && !feedback ? `<div class="dictation-hint"><span>${target.type === "word" ? "Nghĩa" : "Ngữ cảnh"}</span><strong>${escapeHtml(target.meaning)}</strong><small>Đáp án có ${Array.from(normalizeChinese(target.text)).length} chữ Hán.</small></div>` : ""}
+      </div>
+      ${feedback ? renderDictationFeedback(target, feedback) : `
+        <div class="dictation-input-card">
+          <label for="dictation-answer-ime">Gõ chữ Hán bạn nghe được</label>
+          <pinyin-ime-editor id="dictation-answer-ime" value="${escapeHtml(dictationSession.answer || "")}" editor-type="input" page-size="9" popup-position="bottom" placeholder="Gõ Pinyin rồi bấm Space để chọn chữ…" autocomplete="off"></pinyin-ime-editor>
+          <small>Ví dụ: gõ <b>nihao</b> → chọn <b>你好</b>. Dấu câu không ảnh hưởng kết quả.</small>
+          <button class="primary-button" type="button" data-action="submit-dictation">Kiểm tra đáp án</button>
+        </div>
+      `}
+    </section>
+  `;
+}
+
+function renderAlignmentRows(alignment) {
+  const expectedTokens = alignment.operations
+    .filter((operation) => operation.type !== "extra")
+    .map((operation) => `<span class="alignment-token ${operation.type === "match" ? "is-match" : "is-error"}">${escapeHtml(operation.expected)}</span>`)
+    .join("");
+  const actualTokens = alignment.operations
+    .map((operation) => {
+      if (operation.type === "missing") return `<span class="alignment-token is-missing">＿</span>`;
+      return `<span class="alignment-token ${operation.type === "match" ? "is-match" : operation.type === "extra" ? "is-extra" : "is-error"}">${escapeHtml(operation.actual)}</span>`;
+    })
+    .join("");
+  return `<div class="alignment-row"><small>Đáp án</small><div>${expectedTokens}</div></div><div class="alignment-row"><small>Bạn nhập</small><div>${actualTokens || `<span class="alignment-token is-missing">＿</span>`}</div></div>`;
+}
+
+function renderDictationFeedback(target, feedback) {
+  const wrongCharacters = [...new Set(feedback.alignment.operations.filter((item) => ["replace", "missing"].includes(item.type)).map((item) => item.expected))].join("、");
+  return `
+    <div class="dictation-feedback ${feedback.correct ? "is-correct" : "has-errors"}">
+      <div class="feedback-score-orb"><strong>${feedback.similarity}%</strong><small>${feedback.correct ? "Chính xác" : "Độ khớp"}</small></div>
+      <div class="dictation-feedback-main"><span class="skill-kicker">${feedback.correct ? "太好了 · Tuyệt lắm" : "Nghe lại phần màu đỏ"}</span><h2>${target.text}</h2>${state.showPinyin ? `<p class="practice-pinyin">${escapeHtml(target.pinyin)}</p>` : ""}<p>${escapeHtml(target.meaning)}</p><div class="alignment-board">${renderAlignmentRows(feedback.alignment)}</div>${wrongCharacters ? `<p class="correction-tip">🎯 Tập trung nghe lại: <strong>${wrongCharacters}</strong></p>` : ""}</div>
+      <div class="dictation-feedback-actions">${target.wordId ? `<button class="secondary-button" type="button" data-action="open-writing-word" data-word="${target.wordId}">✍ Luyện viết từ này</button>` : ""}<button class="secondary-button" type="button" data-action="play-dictation">${icon("volume")} Nghe lại</button><button class="primary-button" type="button" data-action="next-dictation">${dictationSession.index + 1 === dictationSession.targets.length ? "Xem kết quả" : "Câu tiếp theo →"}</button></div>
+    </div>
+  `;
+}
+
+function renderDictationComplete() {
+  const total = dictationSession.targets.length;
+  const percent = Math.round((dictationSession.score / total) * 100);
+  return `
+    <section class="card practice-complete">
+      <span class="complete-icon">${percent >= 80 ? "🏆" : percent >= 50 ? "🌟" : "🎧"}</span>
+      <p class="eyebrow">Hoàn thành vòng chính tả</p><h2>${dictationSession.score}/${total} câu chính xác</h2><p>${percent >= 80 ? "Tai nghe và mặt chữ của bạn đang kết nối rất tốt." : "Những câu sai đã được giữ lại bên dưới để nghe lại."}</p>
+      <div class="practice-result-number"><strong>${percent}%</strong><small>điểm chính tả</small></div>
+      ${dictationSession.wrong.length ? `<div class="practice-mistake-list"><h3>${dictationSession.wrong.length} câu cần nghe lại</h3>${dictationSession.wrong.map((item) => `<article><div><strong>${item.target.text}</strong><small>${state.showPinyin ? `${escapeHtml(item.target.pinyin)} · ` : ""}${escapeHtml(item.target.meaning)}</small></div><button type="button" data-action="speak-practice-target" data-target="${escapeHtml(item.target.id)}">${icon("volume")}</button>${item.target.wordId ? `<button type="button" data-action="open-writing-word" data-word="${item.target.wordId}">✍</button>` : ""}</article>`).join("")}</div>` : ""}
+      <div class="complete-actions"><button class="secondary-button" type="button" data-action="reset-dictation">Đổi cấp độ</button><button class="primary-button" type="button" data-action="restart-dictation">${icon("refresh")} Làm vòng mới</button><button class="secondary-button" type="button" data-action="select-practice-mode" data-mode="speaking">Chuyển sang Speaking →</button></div>
+    </section>
+  `;
+}
+
+function renderSpeakingPractice() {
+  if (!speakingSession) return renderPracticeSetup("speaking");
+  if (speakingSession.finished) return renderSpeakingComplete();
+  const target = speakingSession.targets[speakingSession.index];
+  const result = speakingSession.result;
+  const progress = Math.round((speakingSession.index / speakingSession.targets.length) * 100);
+  return `
+    <section class="speaking-game card">
+      <div class="practice-session-top"><button class="text-button" type="button" data-action="exit-speaking">← Chọn lại</button><div class="practice-progress"><span style="--progress:${progress}%"></span></div><strong>${speakingSession.index + 1}/${speakingSession.targets.length}</strong></div>
+      <div class="speaking-scorebar"><span>⭐ <strong>${speakingSession.points}</strong> điểm</span><span>🔥 <strong>${speakingSession.streak}</strong> chuỗi tốt</span><span>HSK <strong>${speakingSession.level}</strong></span></div>
+      <div class="speaking-prompt">
+        <span class="practice-round-label">Hãy nói câu này</span>
+        <h2 class="speaking-target-hanzi">${target.text}</h2>
+        ${state.showPinyin ? `<p class="practice-pinyin speaking-target-pinyin">${escapeHtml(target.pinyin)}</p>` : ""}
+        <p>${escapeHtml(target.meaning)}</p>
+        <button class="secondary-button" type="button" data-action="listen-speaking-sample">${icon("volume")} Nghe mẫu</button>
+      </div>
+      <div class="speaking-mic-zone ${speakingSession.listening ? "is-listening" : ""}">
+        <button class="speaking-mic-button" type="button" data-action="record-speaking" aria-label="${speakingSession.listening ? "Đang nghe" : "Bắt đầu nói"}" ${speakingSession.listening ? "disabled" : ""}><span>🎙</span><i></i><i></i></button>
+        <strong id="speaking-status">${speakingSession.listening ? "Đang nghe… nói ngay nhé" : result ? "Muốn thử lại thì bấm micro lần nữa" : "Bấm micro rồi nói tự nhiên"}</strong>
+        <small>Cho phép dùng micro khi Chrome hỏi. Nói trong một lần, không cần quá nhanh.</small>
+      </div>
+      ${speakingSession.error ? `<div class="speech-error"><strong>Chưa chấm được lần này</strong><p>${escapeHtml(speakingSession.error)}</p><button class="secondary-button" type="button" data-action="record-speaking">Thử mở micro lại</button><button class="text-button" type="button" data-action="skip-speaking">Bỏ qua câu này</button></div>` : ""}
+      ${result ? renderSpeakingFeedback(target, result) : ""}
+      <p class="speaking-disclaimer">Điểm phản ánh mức độ câu nói được Chrome nhận thành đúng chữ. App chưa thể kết luận chính xác bạn sai thanh điệu hay khẩu hình nào.</p>
+    </section>
+  `;
+}
+
+function speakingCorrection(target, result) {
+  if (result.score === 100) return "Máy nhận đúng toàn bộ. Giờ thử nói lại liền mạch và tự nhiên hơn.";
+  const syllables = String(target.pinyin || "").replace(/[.,!?;:，。！？；：]/g, "").split(/\s+/).filter(Boolean);
+  const weak = result.alignment.operations
+    .filter((operation) => ["replace", "missing"].includes(operation.type))
+    .slice(0, 4)
+    .map((operation) => `${operation.expected}${syllables[operation.expectedIndex] ? ` (${syllables[operation.expectedIndex]})` : ""}`);
+  const focus = [...new Set(weak)].join(" · ");
+  if (result.score >= 75) return `Khá gần rồi. Nghe mẫu chậm và nói rõ hơn phần: ${focus || "những chữ màu đỏ"}.`;
+  return `Tách câu thành cụm ngắn, nói chậm và nhấn rõ từng âm: ${focus || "phần màu đỏ"}.`;
+}
+
+function renderSpeakingFeedback(target, result) {
+  const stars = result.score >= 90 ? "★★★" : result.score >= 70 ? "★★☆" : result.score >= 45 ? "★☆☆" : "☆☆☆";
+  return `
+    <div class="speaking-feedback ${result.score >= 80 ? "is-good" : "needs-work"}">
+      <div class="speaking-result-score"><strong>${result.score}</strong><small>/100</small><span>${stars}</span></div>
+      <div class="speaking-result-copy"><span class="skill-kicker">Máy nghe được</span><h3>${escapeHtml(result.transcript || "—")}</h3><div class="alignment-board speaking-alignment">${renderAlignmentRows(result.alignment)}</div><p class="correction-tip">💬 ${escapeHtml(speakingCorrection(target, result))}</p></div>
+      <div class="speaking-result-actions">${target.wordId ? `<button class="secondary-button" type="button" data-action="open-writing-word" data-word="${target.wordId}">✍ Luyện viết</button>` : ""}<button class="secondary-button" type="button" data-action="record-speaking">Nói lại</button><button class="primary-button" type="button" data-action="next-speaking">${speakingSession.index + 1 === speakingSession.targets.length ? "Xem kết quả" : "Nhận điểm & tiếp →"}</button></div>
+    </div>
+  `;
+}
+
+function renderSpeakingComplete() {
+  const average = speakingSession.scores.length
+    ? Math.round(speakingSession.scores.reduce((total, score) => total + score, 0) / speakingSession.scores.length)
+    : 0;
+  return `
+    <section class="card practice-complete speaking-complete">
+      <span class="complete-icon">${average >= 85 ? "🏆" : average >= 65 ? "🎙" : "🌱"}</span><p class="eyebrow">Speaking Challenge hoàn tất</p><h2>Trung bình ${average}/100</h2><p>${average >= 85 ? "Máy nhận câu nói của bạn rất rõ. Tiếp tục giữ nhịp tự nhiên nhé!" : "Nghe chậm, chia cụm và nói lại các chữ màu đỏ sẽ giúp điểm tăng nhanh nhất."}</p>
+      <div class="speaking-final-grid"><div><strong>${speakingSession.points}</strong><small>Điểm game</small></div><div><strong>${Math.max(...speakingSession.scores, 0)}</strong><small>Lượt tốt nhất</small></div><div><strong>${speakingSession.bestStreak}</strong><small>Chuỗi tốt nhất</small></div></div>
+      <div class="complete-actions"><button class="secondary-button" type="button" data-action="reset-speaking">Đổi cấp độ</button><button class="primary-button" type="button" data-action="restart-speaking">${icon("refresh")} Chơi vòng mới</button><button class="secondary-button" type="button" data-action="select-practice-mode" data-mode="dictation">Luyện chính tả →</button></div>
+    </section>
+  `;
+}
+
+function startDictationSession() {
+  const pool = practiceTargets();
+  dictationSession = {
+    level: practiceLevel,
+    content: practiceContent,
+    targets: shuffle(pool).slice(0, Math.min(10, pool.length)),
+    index: 0,
+    score: 0,
+    answer: "",
+    feedback: null,
+    hint: false,
+    wrong: [],
+    finished: false,
+  };
+  renderPractice();
+  speakPracticeTarget(dictationSession.targets[0], 0.72);
+}
+
+function currentDictationTarget() {
+  return dictationSession?.targets[dictationSession.index];
+}
+
+function speakPracticeTarget(target, rate = 0.72) {
+  if (!target) return;
+  speakChineseText(target.text, rate, null, { role: target.role || "narrator" });
+}
+
+function submitDictation() {
+  if (!dictationSession || dictationSession.feedback) return;
+  const editor = document.querySelector("#dictation-answer-ime");
+  const answer = String(editor?.value ?? dictationSession.answer ?? "").trim();
+  if (!normalizeChinese(answer)) {
+    showToast("Bạn hãy gõ đáp án rồi mới kiểm tra nhé.", "听");
+    editor?.focus?.();
+    return;
+  }
+  const target = currentDictationTarget();
+  const alignment = alignChinese(target.text, answer);
+  const correct = alignment.expected === alignment.actual;
+  const similarity = similarityScore(target.text, answer);
+  dictationSession.answer = answer;
+  dictationSession.feedback = { answer, alignment, correct, similarity };
+  dictationSession.score += correct ? 1 : 0;
+  state.stats.dictationAttempts += 1;
+  if (correct) state.stats.dictationCorrect += 1;
+  if (!correct) {
+    dictationSession.wrong.push({ target, answer, similarity });
+    if (target.wordId) recordMistake(target.wordId);
+  }
+  recordStudy({ wordId: target.wordId, xp: correct ? 10 : Math.max(2, Math.round(similarity / 20)), type: "dictation" });
+  if (correct) launchConfetti(14);
+  renderPractice();
+}
+
+function nextDictation() {
+  if (!dictationSession?.feedback) return;
+  if (dictationSession.index + 1 >= dictationSession.targets.length) {
+    dictationSession.finished = true;
+    renderPractice();
+    return;
+  }
+  dictationSession.index += 1;
+  dictationSession.answer = "";
+  dictationSession.feedback = null;
+  dictationSession.hint = false;
+  renderPractice();
+  speakPracticeTarget(currentDictationTarget(), 0.72);
+}
+
+function startSpeakingGame() {
+  const pool = practiceTargets();
+  speakingSession = {
+    level: practiceLevel,
+    content: practiceContent,
+    targets: shuffle(pool).slice(0, Math.min(8, pool.length)),
+    index: 0,
+    result: null,
+    error: null,
+    listening: false,
+    points: 0,
+    streak: 0,
+    bestStreak: 0,
+    scores: [],
+    finished: false,
+  };
+  renderPractice();
+}
+
+function startSpeakingRecognition() {
+  const target = speakingSession?.targets[speakingSession.index];
+  if (!target || speakingSession.listening) return;
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    speakingSession.error = "Trình duyệt này chưa hỗ trợ nhận diện giọng nói. Hãy mở app bằng Chrome trên máy tính hoặc Android để được chấm tự động.";
+    renderPractice();
+    return;
+  }
+  activeRecognition?.abort?.();
+  const recognition = new Recognition();
+  activeRecognition = recognition;
+  recognition.lang = "zh-CN";
+  recognition.interimResults = false;
+  recognition.continuous = false;
+  recognition.maxAlternatives = 3;
+  speakingSession.error = null;
+  speakingSession.listening = true;
+  renderPractice();
+
+  recognition.onresult = (event) => {
+    const alternatives = Array.from(event.results?.[0] || []).map((item) => ({ transcript: item.transcript || "", confidence: Number(item.confidence || 0) }));
+    const best = alternatives
+      .map((item) => ({ ...item, score: similarityScore(target.text, item.transcript) }))
+      .sort((left, right) => right.score - left.score || right.confidence - left.confidence)[0] || { transcript: "", confidence: 0, score: 0 };
+    speakingSession.result = {
+      ...best,
+      alignment: alignChinese(target.text, best.transcript),
+    };
+    speakingSession.listening = false;
+    activeRecognition = null;
+    if (best.score >= 85) launchConfetti(12);
+    renderPractice();
+  };
+  recognition.onerror = (event) => {
+    const messages = {
+      "not-allowed": "Chrome đang chặn micro. Bấm biểu tượng ổ khóa cạnh thanh địa chỉ → Microphone → Cho phép, rồi thử lại.",
+      "service-not-allowed": "Dịch vụ nhận diện giọng nói đang bị chặn trên thiết bị này.",
+      "no-speech": "App chưa nghe thấy giọng nói. Đưa micro gần hơn và nói lại nhé.",
+      network: "Dịch vụ nhận diện giọng nói cần mạng và đang chưa kết nối được.",
+      audio_capture: "Không tìm thấy micro đang hoạt động trên thiết bị.",
+    };
+    speakingSession.error = messages[event.error] || "Chưa nhận diện được lần này. Hãy thử nói chậm và rõ hơn.";
+    speakingSession.listening = false;
+    activeRecognition = null;
+    renderPractice();
+  };
+  recognition.onend = () => {
+    if (!speakingSession) return;
+    speakingSession.listening = false;
+    if (activeRecognition === recognition) activeRecognition = null;
+    if (currentPage === "practice" && practiceMode === "speaking") renderPractice();
+  };
+  try {
+    recognition.start();
+  } catch {
+    speakingSession.listening = false;
+    speakingSession.error = "Micro đang bận. Đợi một chút rồi bấm lại nhé.";
+    activeRecognition = null;
+    renderPractice();
+  }
+}
+
+function acceptSpeakingResult({ skipped = false } = {}) {
+  if (!speakingSession) return;
+  const target = speakingSession.targets[speakingSession.index];
+  const result = skipped
+    ? { score: 0, transcript: "", alignment: alignChinese(target.text, "") }
+    : speakingSession.result;
+  if (!result) return;
+  speakingSession.scores.push(result.score);
+  const gained = Math.round(result.score / 10);
+  speakingSession.points += gained;
+  speakingSession.streak = result.score >= 75 ? speakingSession.streak + 1 : 0;
+  speakingSession.bestStreak = Math.max(speakingSession.bestStreak, speakingSession.streak);
+  state.stats.speakingAttempts += 1;
+  state.stats.speakingBest = Math.max(state.stats.speakingBest || 0, result.score);
+  recordStudy({ wordId: target.wordId, xp: gained, type: "speak" });
+  if (speakingSession.index + 1 >= speakingSession.targets.length) {
+    speakingSession.finished = true;
+    renderPractice();
+    return;
+  }
+  speakingSession.index += 1;
+  speakingSession.result = null;
+  speakingSession.error = null;
+  renderPractice();
 }
 
 function renderWeek() {
@@ -1814,6 +2214,54 @@ function bindGlobalEvents() {
     if (!actionElement) return;
     const action = actionElement.dataset.action;
 
+    if (action === "open-practice") {
+      practiceMode = actionElement.dataset.mode === "speaking" ? "speaking" : "dictation";
+      navigate("practice");
+    }
+    if (action === "select-practice-mode") {
+      activeRecognition?.abort?.();
+      activeRecognition = null;
+      practiceMode = actionElement.dataset.mode === "speaking" ? "speaking" : "dictation";
+      renderPractice();
+    }
+    if (action === "select-practice-level") {
+      practiceLevel = Math.min(3, Math.max(1, Number(actionElement.dataset.level) || 1));
+      renderPractice();
+    }
+    if (action === "select-practice-content") {
+      practiceContent = actionElement.dataset.content === "sentences" ? "sentences" : "words";
+      renderPractice();
+    }
+    if (action === "start-dictation") startDictationSession();
+    if (action === "play-dictation") speakPracticeTarget(currentDictationTarget(), 0.72);
+    if (action === "play-dictation-slow") speakPracticeTarget(currentDictationTarget(), 0.52);
+    if (action === "toggle-dictation-hint" && dictationSession) {
+      dictationSession.hint = !dictationSession.hint;
+      renderPractice();
+    }
+    if (action === "submit-dictation") submitDictation();
+    if (action === "next-dictation") nextDictation();
+    if (action === "exit-dictation" || action === "reset-dictation") {
+      dictationSession = null;
+      renderPractice();
+    }
+    if (action === "restart-dictation") startDictationSession();
+    if (action === "speak-practice-target") {
+      const target = dictationSession?.wrong.find((item) => item.target.id === actionElement.dataset.target)?.target;
+      speakPracticeTarget(target, 0.68);
+    }
+    if (action === "start-speaking-game") startSpeakingGame();
+    if (action === "listen-speaking-sample") speakPracticeTarget(speakingSession?.targets[speakingSession.index], 0.66);
+    if (action === "record-speaking") startSpeakingRecognition();
+    if (action === "next-speaking") acceptSpeakingResult();
+    if (action === "skip-speaking") acceptSpeakingResult({ skipped: true });
+    if (action === "exit-speaking" || action === "reset-speaking") {
+      activeRecognition?.abort?.();
+      activeRecognition = null;
+      speakingSession = null;
+      renderPractice();
+    }
+    if (action === "restart-speaking") startSpeakingGame();
     if (action === "start-lesson") openCourseLesson(actionElement.dataset.lesson);
     if (action === "select-level") {
       selectedLevel = Number(actionElement.dataset.level) || 1;
@@ -1942,6 +2390,9 @@ function bindGlobalEvents() {
   document.addEventListener("change", (event) => {
     if (event.target.id === "pinyin-ime-editor") {
       lookupImeValue = String(event.detail?.value ?? event.target.value ?? "");
+    }
+    if (event.target.id === "dictation-answer-ime" && dictationSession) {
+      dictationSession.answer = String(event.detail?.value ?? event.target.value ?? "");
     }
     if (event.target.id === "word-lesson-filter") {
       wordLessonFilter = event.target.value;
