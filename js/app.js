@@ -7,6 +7,7 @@ import {
   getCourseLesson,
 } from "./data.js";
 import { alignChinese, normalizeChinese, similarityScore } from "./practice.js";
+import { createPinyinDictionary } from "./pinyin.js";
 
 const STORAGE_KEY = "hanzigo-state-v1";
 const DAY_MS = 86_400_000;
@@ -81,6 +82,8 @@ const PAGE_META = {
   flashcards: ["Thẻ ghi nhớ", "Lật thẻ · nghe · tự đánh giá"],
   quiz: ["Thử thách nhanh", "10 câu · nghĩa · chữ · nghe"],
 };
+
+const LOCAL_PINYIN_DICTIONARY = createPinyinDictionary(VOCABULARY);
 
 const main = document.querySelector("#app-main");
 const pageTitle = document.querySelector("#page-title");
@@ -547,6 +550,7 @@ function renderPractice() {
     </section>
     ${practiceMode === "dictation" ? renderDictationPractice() : renderSpeakingPractice()}
   `;
+  preparePinyinEditor(document.querySelector("#dictation-answer-ime"));
   requestAnimationFrame(() => {
     const answerEditor = document.querySelector("#dictation-answer-ime");
     if (answerEditor && dictationSession && answerEditor.value !== dictationSession.answer) answerEditor.value = dictationSession.answer || "";
@@ -1901,12 +1905,23 @@ function renderWritingLookup() {
       </aside>
     </section>
   `;
+  preparePinyinEditor(document.querySelector("#pinyin-ime-editor"));
   requestAnimationFrame(() => {
     const ime = document.querySelector("#pinyin-ime-editor");
     if (ime && ime.value !== lookupImeValue) ime.value = lookupImeValue;
     setupWritingCanvas();
     setupStrokeAnimator();
   });
+}
+
+function preparePinyinEditor(editor) {
+  if (!editor) return;
+  const attachDictionary = () => {
+    if (!editor.isConnected) return;
+    editor.getDictionary = () => LOCAL_PINYIN_DICTIONARY;
+  };
+  if (customElements.get("pinyin-ime-editor")) attachDictionary();
+  else customElements.whenDefined("pinyin-ime-editor").then(attachDictionary);
 }
 
 function currentWritingCharacter() {
